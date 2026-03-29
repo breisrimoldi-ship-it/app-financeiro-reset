@@ -246,10 +246,10 @@ function ModalShell({
         className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
         <div
           className={classNames(
-            "flex max-h-[90vh] w-full flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl",
+            "flex max-h-[90vh] w-full flex-col overflow-hidden rounded-4x1 border border-slate-200 bg-white shadow-2xl",
             maxWidth
           )}
         >
@@ -311,7 +311,7 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
     <textarea
       {...props}
       className={classNames(
-        "min-h-[110px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-400",
+        "min-h-27.5 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-400",
         props.className
       )}
     />
@@ -669,48 +669,82 @@ export default function MetasPage() {
   }
 
   async function salvarAporte(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!userId || !metaAporteAtual) {
-      setErro("Meta inválida para lançamento.");
-      return;
-    }
-
-    if (!aporteForm.valor || Number(aporteForm.valor) <= 0) {
-      setErro("Informe um valor válido.");
-      return;
-    }
-
-    try {
-      setSavingAporte(true);
-      setErro(null);
-
-      const payload = {
-        user_id: userId,
-        meta_id: metaAporteAtual.id,
-        tipo: aporteForm.tipo,
-        valor: Number(aporteForm.valor || 0),
-        descricao: aporteForm.descricao.trim() || null,
-        data: aporteForm.data || getHoje(),
-      };
-
-      const { error } = await supabase.from("meta_aportes").insert(payload);
-
-      if (error) throw error;
-
-      setAporteModalOpen(false);
-      setMetaAporteAtual(null);
-      setAporteForm(getAporteFormInicial());
-
-      await carregarDados();
-    } catch (e) {
-      console.error(e);
-      setErro("Não foi possível salvar o lançamento da meta.");
-    } finally {
-      setSavingAporte(false);
-    }
+  if (!userId || !metaAporteAtual) {
+    setErro("Meta inválida para lançamento.");
+    return;
   }
 
+  if (!aporteForm.valor || Number(aporteForm.valor) <= 0) {
+    setErro("Informe um valor válido.");
+    return;
+  }
+
+  try {
+    setSavingAporte(true);
+    setErro(null);
+
+    const valorNumerico = Number(aporteForm.valor || 0);
+    const dataLancamento = aporteForm.data || getHoje();
+
+    const payloadAporte = {
+      user_id: userId,
+      meta_id: metaAporteAtual.id,
+      tipo: aporteForm.tipo,
+      valor: valorNumerico,
+      descricao: aporteForm.descricao.trim() || null,
+      data: dataLancamento,
+    };
+
+    const { data: aporteCriado, error: aporteError } = await supabase
+      .from("meta_aportes")
+      .insert(payloadAporte)
+      .select()
+      .single();
+
+    if (aporteError) throw aporteError;
+
+    const descricaoMovimentacao =
+      aporteForm.descricao.trim() ||
+      `${aporteForm.tipo === "retirada" ? "Retirada" : "Aporte"} - ${metaAporteAtual.nome}`;
+
+    const categoriaMovimentacao =
+      aporteForm.tipo === "retirada" ? "retirada_meta" : "aporte_meta";
+
+    const { error: movimentacaoError } = await supabase
+      .from("movimentacoes")
+      .insert({
+        tipo: "despesa",
+        descricao: descricaoMovimentacao,
+        categoria: categoriaMovimentacao,
+        valor: valorNumerico,
+        data: dataLancamento,
+        tipo_pagamento: "pix_dinheiro",
+        cartao_id: null,
+        parcelas: null,
+        primeira_cobranca: null,
+        meta_id: metaAporteAtual.id,
+        meta_aporte_id: aporteCriado.id,
+      });
+
+    if (movimentacaoError) {
+      await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
+      throw movimentacaoError;
+    }
+
+    setAporteModalOpen(false);
+    setMetaAporteAtual(null);
+    setAporteForm(getAporteFormInicial());
+
+    await carregarDados();
+  } catch (e) {
+    console.error(e);
+    setErro("Não foi possível salvar o lançamento da meta.");
+  } finally {
+    setSavingAporte(false);
+  }
+}
   async function excluirAporte(item: MetaAporteRow) {
     const confirmar = window.confirm("Deseja excluir este lançamento?");
     if (!confirmar || !userId) return;
@@ -736,7 +770,7 @@ export default function MetasPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="rounded-[32px] border border-slate-200 bg-white px-6 py-8 shadow-sm">
+        <div className="rounded-4x1 border border-slate-200 bg-white px-6 py-8 shadow-sm">
           <div className="h-5 w-32 animate-pulse rounded-full bg-slate-200" />
           <div className="mt-4 h-10 w-72 animate-pulse rounded-2xl bg-slate-200" />
           <div className="mt-3 h-4 w-80 animate-pulse rounded-full bg-slate-100" />
@@ -774,7 +808,7 @@ export default function MetasPage() {
 
   if (!userId) {
     return (
-      <div className="rounded-[32px] border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
+      <div className="rounded-4x1 border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
         <p className="text-sm font-medium uppercase tracking-[0.18em] text-slate-500">
           Metas
         </p>
@@ -791,7 +825,7 @@ export default function MetasPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[32px] border border-slate-200 bg-gradient-to-r from-white to-slate-50 px-6 py-8 shadow-sm md:px-8">
+      <section className="rounded-4x1 border border-slate-200 bg-linear-to-r from-white to-slate-50 px-6 py-8 shadow-sm md:px-8">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
@@ -820,7 +854,7 @@ export default function MetasPage() {
       </section>
 
       {erro ? (
-        <div className="rounded-[24px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 shadow-sm">
+        <div className="rounded-3x1 border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 shadow-sm">
           {erro}
         </div>
       ) : null}
@@ -866,7 +900,7 @@ export default function MetasPage() {
 />
       </section>
 
-      <section className="rounded-[32px] border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-4x1border border-slate-200 bg-white shadow-sm">
         <div className="grid gap-4 border-b border-slate-200 px-6 py-5 xl:grid-cols-[1.3fr_220px_220px]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -1437,7 +1471,7 @@ export default function MetasPage() {
             </div>
 
             {metaHistoricoAtual.aportesDaMeta.length === 0 ? (
-              <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
+              <div className="rounded-3x1 border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
                 <p className="text-base font-semibold text-slate-900">
                   Ainda não há lançamentos nesta meta
                 </p>
@@ -1454,7 +1488,7 @@ export default function MetasPage() {
                   return (
                     <div
                       key={item.id}
-                      className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-sm"
+                      className="rounded-3x1 border border-slate-200 bg-white px-5 py-4 shadow-sm"
                     >
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0 flex-1">

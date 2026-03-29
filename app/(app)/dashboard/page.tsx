@@ -39,6 +39,8 @@ type Movimentacao = {
   cartao_id: number | null;
   parcelas: number | null;
   primeira_cobranca: string | null;
+  meta_id?: string | null;
+  meta_aporte_id?: string | null;
 };
 
 type FaturaPagamento = {
@@ -767,7 +769,6 @@ function CardResumo({
     </button>
   );
 }
-
 function MiniBarChart({ data }: { data: ChartPoint[] }) {
   const maxValor = Math.max(
     1,
@@ -917,14 +918,14 @@ function RecomendacoesCard({
               <span>{item.texto}</span>
 
               {item.acao && (
-  <button
-    type="button"
-    onClick={() => onExecutar(item.acao!)}
-    className="shrink-0 rounded-xl bg-black px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
-  >
-    Guardar agora
-  </button>
-)}
+                <button
+                  type="button"
+                  onClick={() => onExecutar(item.acao!)}
+                  className="shrink-0 rounded-xl bg-black px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+                >
+                  Guardar agora
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -1474,36 +1475,36 @@ export default function DashboardPage() {
     }
 
     const [
-  { data: movimentacoesData, error: movimentacoesError },
-  { data: faturasPagamentoData, error: faturasPagamentoError },
-  { data: cartoesData, error: cartoesError },
-  { data: metasData, error: metasError },
-  { data: metaAportesData, error: metaAportesError },
-] = await Promise.all([
-  supabase
-    .from("movimentacoes")
-    .select(
-      "id, created_at, tipo, descricao, categoria, valor, data, tipo_pagamento, cartao_id, parcelas, primeira_cobranca"
-    ),
+      { data: movimentacoesData, error: movimentacoesError },
+      { data: faturasPagamentoData, error: faturasPagamentoError },
+      { data: cartoesData, error: cartoesError },
+      { data: metasData, error: metasError },
+      { data: metaAportesData, error: metaAportesError },
+    ] = await Promise.all([
+      supabase
+        .from("movimentacoes")
+        .select(
+          "id, created_at, tipo, descricao, categoria, valor, data, tipo_pagamento, cartao_id, parcelas, primeira_cobranca, meta_id, meta_aporte_id"
+        ),
 
-  supabase
-    .from("faturas_pagamento")
-    .select("id, cartao_id, mes_referencia, valor_pago, data_pagamento, status"),
+      supabase
+        .from("faturas_pagamento")
+        .select("id, cartao_id, mes_referencia, valor_pago, data_pagamento, status"),
 
-  supabase
-    .from("cartoes")
-    .select("id, nome, fechamento_dia, vencimento_dia, limite"),
+      supabase
+        .from("cartoes")
+        .select("id, nome, fechamento_dia, vencimento_dia, limite"),
 
-  supabase
-    .from("metas")
-    .select("*")
-    .eq("user_id", user.id),
+      supabase
+        .from("metas")
+        .select("*")
+        .eq("user_id", user.id),
 
-  supabase
-    .from("meta_aportes")
-    .select("*")
-    .eq("user_id", user.id),
-]);
+      supabase
+        .from("meta_aportes")
+        .select("*")
+        .eq("user_id", user.id),
+    ]);
 
     if (movimentacoesError) console.error("Erro movimentações:", movimentacoesError);
     if (faturasPagamentoError) console.error("Erro faturas_pagamento:", faturasPagamentoError);
@@ -1520,7 +1521,7 @@ export default function DashboardPage() {
     } else {
       const metasNormalizadas = calcularMetasSnapshotComAportes(
         (metasData ?? []) as MetaRecord[],
-        ((metaAportesData ?? []) as MetaAporteRecord[])
+        (metaAportesData ?? []) as MetaAporteRecord[]
       );
 
       setMetasResumo(metasNormalizadas);
@@ -1577,8 +1578,7 @@ export default function DashboardPage() {
     setChartData(historico);
     setCarregando(false);
   }, [mesSelecionado]);
-
-  useEffect(() => {
+    useEffect(() => {
     let ativo = true;
 
     const executar = async () => {
@@ -1839,76 +1839,86 @@ export default function DashboardPage() {
   }, [cardAtivo, cartoesCache, faturasPagamentoCache, mesSelecionado, movimentacoesCache]);
 
   const executarAcao = useCallback(
-  async (acao: RecomendacaoAcao) => {
-    if (acao.tipo !== "guardar_meta") return;
+    async (acao: RecomendacaoAcao) => {
+      if (acao.tipo !== "guardar_meta") return;
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-    if (authError || !user) {
-      alert("Você precisa estar logado.");
-      return;
-    }
+      if (authError || !user) {
+        alert("Você precisa estar logado.");
+        return;
+      }
 
-    const descricaoMovimentacao = `Aporte meta: ${acao.metaNome}`;
-    const dataHoje = getHoje();
+      const descricaoAporte = `Aporte rápido pela dashboard • ${acao.metaNome}`;
+      const descricaoMovimentacao = `Aporte meta: ${acao.metaNome}`;
+      const dataHoje = getHoje();
 
-    const { error: aporteError } = await supabase.from("meta_aportes").insert({
-      user_id: user.id,
-      meta_id: acao.metaId,
-      tipo: "aporte",
-      valor: acao.valor,
-      descricao: `Aporte rápido pela dashboard • ${acao.metaNome}`,
-      data: dataHoje,
-    });
-
-    if (aporteError) {
-      console.error("Erro ao registrar aporte:", aporteError);
-      alert("Não foi possível registrar o aporte na meta.");
-      return;
-    }
-
-    const { error: movimentacaoError } = await supabase
-      .from("movimentacoes")
-      .insert({
-        tipo: "despesa",
-        descricao: descricaoMovimentacao,
-        categoria: "investimentos",
-        valor: acao.valor,
-        data: dataHoje,
-        tipo_pagamento: "pix_dinheiro",
-        cartao_id: null,
-        parcelas: null,
-        primeira_cobranca: null,
-      });
-
-    if (movimentacaoError) {
-      console.error("Erro ao registrar despesa da meta:", movimentacaoError);
-
-      await supabase
+      const { data: aporteCriado, error: aporteError } = await supabase
         .from("meta_aportes")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("meta_id", acao.metaId)
-        .eq("data", dataHoje)
-        .eq("valor", acao.valor)
-        .eq("descricao", `Aporte rápido pela dashboard • ${acao.metaNome}`);
+        .insert({
+          user_id: user.id,
+          meta_id: acao.metaId,
+          tipo: "aporte",
+          valor: acao.valor,
+          descricao: descricaoAporte,
+          data: dataHoje,
+        })
+        .select("id")
+        .single();
 
-      alert("O aporte entrou na meta, mas falhou ao abater do saldo. A operação foi desfeita.");
-      return;
-    }
+      if (aporteError || !aporteCriado) {
+        console.error("Erro ao registrar aporte:", aporteError);
+        alert("Não foi possível registrar o aporte na meta.");
+        return;
+      }
 
-    setToast(
-      `Aporte de ${formatarMoeda(acao.valor)} realizado em ${acao.metaNome}`
-    );
+      const { error: movimentacaoError } = await supabase
+        .from("movimentacoes")
+        .insert({
+          tipo: "despesa",
+          descricao: descricaoMovimentacao,
+          categoria: "aporte_meta",
+          valor: acao.valor,
+          data: dataHoje,
+          tipo_pagamento: "pix_dinheiro",
+          cartao_id: null,
+          parcelas: null,
+          primeira_cobranca: null,
+          meta_id: acao.metaId,
+          meta_aporte_id: aporteCriado.id,
+        });
 
-    await carregarDashboard();
-    setTimeout(() => setToast(null), 2500);
-  },
-  [carregarDashboard]
-);
+      if (movimentacaoError) {
+        console.error("Erro ao registrar despesa da meta:", {
+          message: movimentacaoError.message,
+          details: movimentacaoError.details,
+          hint: movimentacaoError.hint,
+          code: movimentacaoError.code,
+          full: movimentacaoError,
+        });
+
+        await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
+
+        alert(
+          `Erro ao registrar despesa da meta:\n${
+            movimentacaoError.message ?? "Sem mensagem"
+          }`
+        );
+        return;
+      }
+
+      setToast(
+        `Aporte de ${formatarMoeda(acao.valor)} realizado em ${acao.metaNome}`
+      );
+
+      await carregarDashboard();
+      setTimeout(() => setToast(null), 2500);
+    },
+    [carregarDashboard]
+  );
 
   async function handleSaveAction(e: React.FormEvent) {
     e.preventDefault();
@@ -1960,13 +1970,13 @@ export default function DashboardPage() {
         : "";
 
     const payload = {
-      user_id: user.id,
       tipo: actionFormType,
       descricao: actionFormData.descricao.trim(),
       categoria: actionFormData.categoria,
       valor: valorNumerico,
       data: actionFormData.data,
-      tipo_pagamento: actionFormType === "despesa" ? actionFormData.tipoPagamento : null,
+      tipo_pagamento:
+        actionFormType === "despesa" ? actionFormData.tipoPagamento : null,
       cartao_id:
         actionFormType === "despesa" && actionFormData.tipoPagamento === "credito"
           ? Number(actionFormData.cartaoId)

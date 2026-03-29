@@ -48,6 +48,8 @@ type Movimentacao = {
   cartaoId?: number | null;
   parcelas?: number | null;
   primeiraCobranca?: string | null;
+  metaId?: string | null;
+  metaAporteId?: string | null;
 };
 
 type DbMovimentacao = {
@@ -62,6 +64,8 @@ type DbMovimentacao = {
   cartao_id: number | null;
   parcelas: number | null;
   primeira_cobranca: string | null;
+  meta_id: string | null;
+  meta_aporte_id: string | null;
 };
 
 type DbCartao = {
@@ -238,20 +242,26 @@ export default function MovimentacoesPage() {
     setSheetOpen(true);
   }
 
-  async function handleDelete(id: number) {
-    const confirmar = window.confirm("Deseja excluir esta movimentação?");
-    if (!confirmar) return;
+async function handleDelete(id: number) {
+  const confirmar = window.confirm("Deseja excluir esta movimentação?");
+  if (!confirmar) return;
 
-    const { error } = await supabase.from("movimentacoes").delete().eq("id", id);
-
-    if (error) {
-      console.error("Erro ao excluir movimentação:", error);
-      alert("Erro ao excluir movimentação.");
-      return;
+  const { error } = await supabase.rpc(
+    "excluir_movimentacao_com_estorno_meta",
+    {
+      p_movimentacao_id: id,
     }
+  );
 
-    setMovimentacoes((prev) => prev.filter((item) => item.id !== id));
+  if (error?.message) {
+    console.error("Erro ao excluir movimentação:", error.message);
+    alert(`Erro ao excluir movimentação:\n${error.message}`);
+    return;
   }
+
+  await carregarMovimentacoes();
+  setSelectedItem(null);
+}
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1277,6 +1287,8 @@ function mapDbToUi(item: DbMovimentacao): Movimentacao {
     cartaoId: item.cartao_id,
     parcelas: item.parcelas,
     primeiraCobranca: item.primeira_cobranca,
+    metaId: item.meta_id,
+    metaAporteId: item.meta_aporte_id,
   };
 }
 
