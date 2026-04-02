@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { type TipoRvLancamento } from "../_lib/tipos";
 
 type ItemInput = {
   insumoNome: string;
@@ -22,6 +23,7 @@ type CustoDetalhadoInput = {
 type LancamentoInput = {
   data: string;
   descricao: string;
+  tipoRv: TipoRvLancamento;
   perfil: string;
   cliente: string;
   valorRecebido: number;
@@ -35,7 +37,7 @@ type LancamentoInput = {
   lucroLiquido: number;
   lucroPorHora: number;
   margem: number;
-  itens: ItemInput[];
+    itens: ItemInput[];
   custosDetalhados?: CustoDetalhadoInput[];
 };
 
@@ -70,24 +72,37 @@ export async function criarLancamentosRendaVariavel(
         throw new Error("Informe um valor recebido maior que zero.");
       }
 
+      const isEntrada =
+        input.tipoRv === "receita_bruta" || input.tipoRv === "aporte_cpf_para_pj";
+
+      const valorRecebidoFinal = isEntrada ? input.valorRecebido : 0;
+      const custoTotalFinal = isEntrada ? 0 : input.valorRecebido;
+      const lucroLiquidoFinal = valorRecebidoFinal - custoTotalFinal;
+      const lucroPorHoraFinal =
+        input.horasTrabalhadas > 0 ? lucroLiquidoFinal / input.horasTrabalhadas : 0;
+      const margemFinal =
+      valorRecebidoFinal > 0 ? (lucroLiquidoFinal / valorRecebidoFinal) * 100 : 0;
+
+const descricaoComTipo = `[${input.tipoRv}] ${input.descricao.trim()}`;
+
       const { data: lancamento, error: lancamentoError } = await supabase
         .from("rv_lancamentos")
         .insert({
           user_id: user.id,
           data: input.data,
-          descricao: input.descricao.trim(),
+          descricao: descricaoComTipo,
           perfil: input.perfil || null,
           cliente: input.cliente.trim() || null,
-          valor_recebido: input.valorRecebido,
+          valor_recebido: valorRecebidoFinal,
           horas_trabalhadas: input.horasTrabalhadas,
           quantidade: input.quantidade,
           custo_manual_descricao: input.custoManualDescricao.trim() || null,
           custo_manual_valor: input.custoManualValor,
           custo_insumos: input.custoInsumos,
-          custo_total: input.custoTotal,
-          lucro_liquido: input.lucroLiquido,
-          lucro_por_hora: input.lucroPorHora,
-          margem: input.margem,
+          custo_total: custoTotalFinal,
+          lucro_liquido: lucroLiquidoFinal,
+          lucro_por_hora: lucroPorHoraFinal,
+          margem: margemFinal,
         })
         .select("id")
         .single();
