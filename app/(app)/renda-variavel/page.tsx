@@ -161,28 +161,34 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   const listaRecentes = (lancamentosRecentes ?? []) as LancamentoRow[];
   const listaTransferencias = (transferenciasMes ?? []) as TransferenciaRow[];
 
-  const recebidoMes = listaMes.reduce(
-    (acc, item) => acc + Number(item.valor_recebido ?? 0),
-    0
-  );
+  const transferidoMesLegado = listaTransferencias.reduce(
+  (acc, item) => acc + Number(item.valor ?? 0),
+  0
+);
 
-  const custosMes = listaMes.reduce(
-    (acc, item) => acc + Number(item.custo_total ?? 0),
-    0
-  );
+const totais = {
+  receitas: 0,
+  aportes: 0,
+  custos: 0,
+  transferencias: 0,
+};
 
-  const lucroLiquidoMes = listaMes.reduce(
-    (acc, item) => acc + Number(item.lucro_liquido ?? 0),
-    0
-  );
+for (const item of listaMes) {
+  const tipo = parseTipoFromDescricao(item.descricao ?? "");
+  const recebido = Number(item.valor_recebido ?? 0);
+  const custo = Number(item.custo_total ?? 0);
 
-  const transferidoMes = listaTransferencias.reduce(
-    (acc, item) => acc + Number(item.valor ?? 0),
-    0
-  );
+  if (tipo === "receita_bruta") totais.receitas += recebido;
+  else if (tipo === "aporte_cpf_para_pj") totais.aportes += recebido;
+  else if (tipo === "transferencia_para_cpf") totais.transferencias += custo;
+  else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") totais.custos += custo;
+}
 
-  const mediaPorLancamento =
-    listaMes.length > 0 ? lucroLiquidoMes / listaMes.length : 0;
+  const lucroLiquidoMes =
+  totais.receitas + totais.aportes - totais.custos - totais.transferencias;
+
+const mediaPorLancamento =
+  listaMes.length > 0 ? lucroLiquidoMes / listaMes.length : 0;
 
   const totalHorasEstimadas = listaMes.reduce((acc, item) => {
     const lucro = Number(item.lucro_liquido ?? 0);
@@ -220,16 +226,17 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
       : lucroLiquidoMes;
 
   const resumo = {
-    saldoCarteira: Math.max(lucroLiquidoMes, 0),
-    recebidoMes,
-    custosMes,
-    lucroLiquidoMes,
-    transferidoMes,
-    totalHorasEstimadas,
-    mediaPorLancamento,
-    lucroPorHora,
-    projecaoMes,
-  };
+  saldoCarteira: Math.max(lucroLiquidoMes, 0),
+  recebidoMes: totais.receitas,
+  aportesMes: totais.aportes,
+  custosMes: totais.custos,
+  lucroLiquidoMes,
+  transferidoMes: totais.transferencias + transferidoMesLegado,
+  totalHorasEstimadas,
+  mediaPorLancamento,
+  lucroPorHora,
+  projecaoMes,
+};
 
   const lancamentos = listaRecentes.map((item) => ({
   id: item.id,
@@ -363,9 +370,24 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
               R$ {formatMoney(resumo.recebidoMes)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              Total bruto lançado no período
+              Total de receitas brutas (sem aportes)
             </p>
           </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+  <div className="mb-4 flex items-center justify-between">
+    <span className="text-sm text-zinc-500">Aportes no mês</span>
+    <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
+      <PiggyBank className="h-4 w-4" />
+    </div>
+  </div>
+  <p className="text-2xl font-semibold tracking-tight text-zinc-900">
+    R$ {formatMoney(resumo.aportesMes)}
+  </p>
+  <p className="mt-1 text-xs text-zinc-500">
+    Entradas da conta CPF para PJ
+  </p>
+</div>
 
           <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
@@ -378,7 +400,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
               R$ {formatMoney(resumo.custosMes)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              Soma dos insumos e custos manuais
+              Taxas financeiras + despesas operacionais
             </p>
           </div>
 
@@ -423,7 +445,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
               R$ {formatMoney(resumo.transferidoMes)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              Valor já enviado para o financeiro
+              Transferências da PJ para conta CPF
             </p>
           </div>
         </section>
