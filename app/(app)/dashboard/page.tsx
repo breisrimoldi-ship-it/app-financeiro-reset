@@ -3,9 +3,9 @@
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "../../../lib/supabase/client";
+import { ResumoCards, type ResumoCardAtivo } from "./_components/resumo-cards";
 import {
   ArrowDownLeft,
-  ArrowDownRight,
   ArrowUpRight,
   Calendar,
   CalendarDays,
@@ -511,75 +511,6 @@ function getStatusContaDashboard(
     dataVencimento,
     pagamento: null,
   };
-}
-
-function CardResumo({
-  titulo,
-  valor,
-  descricao,
-  icon,
-  tone = "default",
-  active = false,
-  onClick,
-}: {
-  titulo: string;
-  valor: string;
-  descricao: string;
-  icon: React.ReactNode;
-  tone?: "default" | "success" | "warning" | "blue";
-  active?: boolean;
-  onClick?: () => void;
-}) {
-  const styles = {
-    default: {
-      wrap: "border-zinc-200 bg-white hover:border-zinc-300",
-      icon: "bg-zinc-100 text-zinc-700",
-      value: "text-zinc-900",
-      active: "ring-2 ring-zinc-300",
-    },
-    success: {
-      wrap: "border-emerald-200 bg-emerald-50/70 hover:border-emerald-300",
-      icon: "bg-emerald-100 text-emerald-700",
-      value: "text-emerald-700",
-      active: "ring-2 ring-emerald-300",
-    },
-    warning: {
-      wrap: "border-orange-200 bg-orange-50/70 hover:border-orange-300",
-      icon: "bg-orange-100 text-orange-700",
-      value: "text-orange-700",
-      active: "ring-2 ring-orange-300",
-    },
-    blue: {
-      wrap: "border-blue-200 bg-blue-50/70 hover:border-blue-300",
-      icon: "bg-blue-100 text-blue-700",
-      value: "text-blue-700",
-      active: "ring-2 ring-blue-300",
-    },
-  };
-
-  const current = styles[tone];
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-3xl border p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] ${current.wrap} ${
-        active ? current.active : ""
-      }`}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-zinc-500">{titulo}</p>
-          <p className={`mt-2 text-3xl font-semibold tracking-tight ${current.value}`}>
-            {valor}
-          </p>
-          <p className="mt-2 text-xs leading-relaxed text-zinc-500">{descricao}</p>
-        </div>
-
-        <div className={`rounded-2xl p-3 ${current.icon}`}>{icon}</div>
-      </div>
-    </button>
-  );
 }
 
 function MiniBarChart({ data }: { data: ChartPoint[] }) {
@@ -3317,81 +3248,25 @@ for (const conta of contasAtivas) {
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <CardResumo
-            titulo="Entradas do mês"
-            valor={formatarMoeda(entradasMes)}
-            descricao="Resumo rápido das entradas"
-            icon={<ArrowUpRight className="h-5 w-5" />}
-            tone="success"
-            active={cardAtivo === "entradas"}
-            onClick={() => {
-              setBuscaModal("");
-              setCardAtivo((prev) => (prev === "entradas" ? null : "entradas"));
-            }}
-          />
-
-          <CardResumo
-            titulo="Saídas pagas"
-            valor={formatarMoeda(saidasPagasMes)}
-            descricao="O que já saiu de verdade"
-            icon={<ArrowDownRight className="h-5 w-5" />}
-            tone="default"
-            active={cardAtivo === "saidas"}
-            onClick={() => {
-              setBuscaModal("");
-              setCardAtivo((prev) => (prev === "saidas" ? null : "saidas"));
-            }}
-          />
-
-          <CardResumo
-            titulo="Comprometido"
-            valor={formatarMoeda(comprometido)}
-            descricao="Faturas e contas ainda em aberto"
-            icon={<CreditCard className="h-5 w-5" />}
-            tone="warning"
-            active={cardAtivo === "comprometido"}
-            onClick={() => {
-              setBuscaModal("");
-              setCardAtivo((prev) =>
-                prev === "comprometido" ? null : "comprometido"
-              );
-            }}
-          />
-
-          <CardResumo
-            titulo="Adiantadas no mês"
-            valor={formatarMoeda(adiantadasMes)}
-            descricao="Pagamentos futuros antecipados"
-            icon={<TrendingUp className="h-5 w-5" />}
-            tone="blue"
-            active={cardAtivo === "adiantadas"}
-            onClick={() => {
-              setBuscaModal("");
-              setCardAtivo((prev) => (prev === "adiantadas" ? null : "adiantadas"));
-            }}
-          />
-
-          <CardResumo
-            titulo="Contas do mês"
-            valor={formatarMoeda(
-              contasCache
-                .filter(
-                  (conta) =>
-                    conta.ativa !== false && contaExisteNoMes(conta, mesSelecionado)
-                )
-                .reduce((acc, conta) => acc + normalizarNumero(conta.valor), 0)
-            )}
-            descricao="Total das contas recorrentes e temporárias"
-            icon={<Calendar className="h-5 w-5" />}
-            tone="default"
-            active={cardAtivo === "contas"}
-            onClick={() => {
-              setBuscaModal("");
-              setCardAtivo((prev) => (prev === "contas" ? null : "contas"));
-            }}
-          />
-        </section>
+        <ResumoCards
+  entradasMesTexto={formatarMoeda(entradasMes)}
+  saidasPagasMesTexto={formatarMoeda(saidasPagasMes)}
+  comprometidoTexto={formatarMoeda(comprometido)}
+  adiantadasMesTexto={formatarMoeda(adiantadasMes)}
+  contasMesTexto={formatarMoeda(
+    contasCache
+      .filter(
+        (conta) =>
+          conta.ativa !== false && contaExisteNoMes(conta, mesSelecionado)
+      )
+      .reduce((acc, conta) => acc + normalizarNumero(conta.valor), 0)
+  )}
+  cardAtivo={cardAtivo}
+  onToggleCard={(card: ResumoCardAtivo) => {
+  setBuscaModal("");
+  setCardAtivo((prev) => (prev === card ? null : card));
+}}
+/>
 
         <section className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
           <div className="border-b border-zinc-100 px-6 py-5">
