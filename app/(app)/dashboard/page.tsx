@@ -22,7 +22,8 @@ import {
   getCategoryLabel,
   getCategoryOptions,
 } from "@/lib/finance/categories";
-
+import { getHojeISO, getMesAtualISO } from "@/lib/finance/date";
+import { formatarMoedaBRL, normalizarNumero } from "@/lib/finance/format";
 const supabase = createClient();
 
 type PaymentType = "pix_dinheiro" | "debito" | "credito";
@@ -195,20 +196,17 @@ type MetaRecord = Record<string, unknown>;
 type MetaAporteRecord = Record<string, unknown>;
 
 function getMesAtual() {
-  const hoje = new Date();
-  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  return getMesAtualISO();
 }
 
-function getHoje() {
-  return new Date().toISOString().slice(0, 10);
-}
+const getHoje = getHojeISO;
 
 function getInitialActionForm(): ActionFormData {
   return {
     descricao: "",
     categoria: "",
     valor: "",
-    data: getHoje(),
+    data: getHojeISO(),
     tipoPagamento: "pix_dinheiro",
     cartaoId: "",
     parcelas: "1",
@@ -216,12 +214,7 @@ function getInitialActionForm(): ActionFormData {
   };
 }
 
-function formatarMoeda(valor: number) {
-  return Number(valor || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
+const formatarMoeda = formatarMoedaBRL;
 
 function formatarMesExtenso(anoMes: string) {
   const [ano, mes] = anoMes.split("-");
@@ -246,10 +239,6 @@ function adicionarMeses(anoMes: string, quantidade: number) {
   const [ano, mes] = anoMes.split("-").map(Number);
   const data = new Date(ano, mes - 1 + quantidade, 1);
   return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function normalizarNumero(valor: number | string | null | undefined) {
-  return Number(valor || 0);
 }
 
 function getStringCampo(meta: MetaRecord, campos: string[], fallback = "") {
@@ -641,116 +630,6 @@ function MiniBarChart({ data }: { data: ChartPoint[] }) {
               >
                 {formatarMoeda(item.saldo)}
               </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function InsightsCard({ insights }: { insights: ReturnType<typeof gerarInsights> }) {
-  const estilos = {
-    alerta: "bg-red-50 border-red-200 text-red-700",
-    positivo: "bg-emerald-50 border-emerald-200 text-emerald-700",
-    neutro: "bg-zinc-50 border-zinc-200 text-zinc-700",
-  };
-
-  return (
-    <div className="space-y-3">
-      <h2 className="text-lg font-semibold text-zinc-900">Insights</h2>
-
-      <div className="mt-4 space-y-3">
-        {insights.map((item, i) => (
-          <div
-            key={i}
-            className={`rounded-2xl border px-4 py-3 text-sm font-medium ${estilos[item.tipo]}`}
-          >
-            {item.texto}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PrevisaoCard({
-  previsao,
-}: {
-  previsao: ReturnType<typeof gerarPrevisao>;
-}) {
-  const negativo = previsao.saldoFinalPrevisto < 0;
-
-  return (
-    <div className="space-y-3">
-      <h2 className="text-lg font-semibold text-zinc-900">Previsão</h2>
-
-      <div className="mt-4 space-y-3">
-        <div
-          className={`rounded-2xl border px-4 py-3 text-sm font-medium ${
-            negativo
-              ? "bg-red-50 border-red-200 text-red-700"
-              : "bg-emerald-50 border-emerald-200 text-emerald-700"
-          }`}
-        >
-          {negativo
-            ? `Se continuar assim, você fechará o mês com ${formatarMoeda(
-                previsao.saldoFinalPrevisto
-              )}`
-            : `Você terminará o mês com aproximadamente ${formatarMoeda(
-                previsao.saldoFinalPrevisto
-              )}`}
-        </div>
-
-        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-          Gasto médio diário: <strong>{formatarMoeda(previsao.gastoDiarioAtual)}</strong>
-        </div>
-
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-          Você pode gastar até{" "}
-          <strong>{formatarMoeda(previsao.gastoDiarioPermitido)}</strong> por dia
-          pelos próximos {previsao.diasRestantes} dias
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RecomendacoesCard({ 
-  recomendacoes,
-  onExecutar,
-}: {
-  recomendacoes: RecomendacaoItem[];
-  onExecutar: (acao: RecomendacaoAcao) => void;
-}) {
-  const estilos = {
-    alerta: "bg-red-50 border-red-200 text-red-700",
-    acao: "bg-emerald-50 border-emerald-200 text-emerald-700",
-  };
-
-  return (
-    <div className="space-y-3">
-      <h2 className="text-lg font-semibold text-zinc-900">Ações</h2>
-
-      <div className="mt-4 space-y-3">
-        {(recomendacoes ?? []).map((item, i) => (
-          <div
-            key={i}
-            className={`rounded-2xl border px-4 py-3 text-sm font-medium ${estilos[item.tipo]}`}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span>{item.texto}</span>
-
-              {item.acao && (
-  <button
-    type="button"
-    onClick={() => onExecutar(item.acao!)}
-    className="shrink-0 rounded-xl bg-black px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
-  >
-    Guardar agora
-  </button>
-)}
-           
             </div>
           </div>
         ))}
@@ -3555,7 +3434,7 @@ for (const conta of contasAtivas) {
         cartoes={cartoesCache}
         saving={savingAction}
       />
-
+      
       {toast && (
         <div className="fixed bottom-6 right-6 z-999">
           <div className="rounded-2xl bg-zinc-900 px-5 py-3 text-sm text-white shadow-xl">

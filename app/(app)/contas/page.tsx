@@ -18,6 +18,8 @@ import {
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { getHojeISO, getMesAtualISO } from "@/lib/finance/date";
+import { formatarMoedaBRL } from "@/lib/finance/format"
 
 type TipoRecorrencia = "indeterminada" | "temporaria";
 type AbaFiltro = "todas" | "ativas" | "inativas";
@@ -55,24 +57,14 @@ type PagamentoConta = {
 };
 
 function getMesAtual() {
-  const hoje = new Date();
-  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  return getMesAtualISO()
 }
 
 function getDataHoje() {
-  const hoje = new Date();
-  const ano = hoje.getFullYear();
-  const mes = String(hoje.getMonth() + 1).padStart(2, "0");
-  const dia = String(hoje.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
+  return getHojeISO();
 }
 
-function formatarMoeda(valor: number) {
-  return Number(valor || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
+const formatarMoeda = formatarMoedaBRL;
 
 function formatarMesAno(anoMes: string | null) {
   if (!anoMes) return "-";

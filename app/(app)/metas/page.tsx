@@ -18,6 +18,8 @@ import {
   CheckCircle2,
   History,
 } from "lucide-react";
+import { getHojeISO } from "@/lib/finance/date";
+import { formatarMoedaBRL, normalizarNumero } from "@/lib/finance/format";
 
 const supabase = createClient();
 
@@ -90,20 +92,9 @@ type AporteFormState = {
   data: string;
 };
 
-function getHoje() {
-  return new Date().toISOString().slice(0, 10);
-}
+const getHoje = getHojeISO;
+const formatarMoeda = formatarMoedaBRL
 
-function normalizarNumero(valor: number | string | null | undefined) {
-  return Number(valor || 0);
-}
-
-function formatarMoeda(valor: number) {
-  return Number(valor || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 function diferencaMesesEntreDatas(inicio: Date, fim: Date) {
   const anos = fim.getFullYear() - inicio.getFullYear();
   const meses = fim.getMonth() - inicio.getMonth();
