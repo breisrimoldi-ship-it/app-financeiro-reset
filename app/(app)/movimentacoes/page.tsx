@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   Calendar,
   CreditCard,
+  Check,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -20,10 +21,6 @@ import {
 import { PageShell } from "@/components/layout/page-shell";
 import { SectionCard } from "@/components/ui/section-card";
 import { createClient } from "@/lib/supabase/client";
-import {
-  getCategoryLabel,
-  getCategoryOptions,
-} from "@/lib/finance/categories";
 
 type FormType = "entrada" | "despesa";
 type TabType = "entradas" | "despesas";
@@ -50,6 +47,7 @@ type Movimentacao = {
   primeiraCobranca?: string | null;
   metaId?: string | null;
   metaAporteId?: string | null;
+  rvTransferenciaId?: string | null;
 };
 
 type DbMovimentacao = {
@@ -66,6 +64,7 @@ type DbMovimentacao = {
   primeira_cobranca: string | null;
   meta_id: string | null;
   meta_aporte_id: string | null;
+  rv_transferencia_id: string | null;
 };
 
 type DbCartao = {
@@ -74,6 +73,56 @@ type DbCartao = {
   fechamento_dia: number;
   vencimento_dia: number;
 };
+
+
+type CategoryOption = {
+  id: string;
+  label: string;
+  slug?: string;
+  ordem?: number;
+};
+
+type DbMovimentacaoCategoria = {
+  id: string;
+  tipo: FormType;
+  nome: string;
+  slug: string;
+  ordem: number | null;
+  ativa: boolean;
+};
+
+type CategoryManagerTab = "entrada" | "despesa";
+
+const CATEGORIAS_PADRAO_ENTRADA = [
+  { nome: "Salário", slug: "salario", ordem: 1 },
+  { nome: "Uber", slug: "uber", ordem: 2 },
+  { nome: "Freelance", slug: "freelance", ordem: 3 },
+  { nome: "Vendas", slug: "vendas", ordem: 4 },
+  { nome: "Reembolso", slug: "reembolso", ordem: 5 },
+  { nome: "Rendimentos", slug: "rendimentos", ordem: 6 },
+  { nome: "Outros", slug: "outros_entrada", ordem: 99 },
+] as const;
+
+const CATEGORIAS_PADRAO_DESPESA = [
+  { nome: "Alimentação", slug: "alimentacao", ordem: 1 },
+  { nome: "Mercado", slug: "mercado", ordem: 2 },
+  { nome: "Moradia", slug: "moradia", ordem: 3 },
+  { nome: "Água", slug: "agua", ordem: 4 },
+  { nome: "Energia", slug: "energia", ordem: 5 },
+  { nome: "Internet", slug: "internet", ordem: 6 },
+  { nome: "Telefone", slug: "telefone", ordem: 7 },
+  { nome: "Transporte", slug: "transporte", ordem: 8 },
+  { nome: "Combustível", slug: "combustivel", ordem: 9 },
+  { nome: "Manutenção", slug: "manutencao", ordem: 10 },
+  { nome: "Saúde", slug: "saude", ordem: 11 },
+  { nome: "Farmácia", slug: "farmacia", ordem: 12 },
+  { nome: "Lazer", slug: "lazer", ordem: 13 },
+  { nome: "Assinaturas", slug: "assinaturas", ordem: 14 },
+  { nome: "Educação", slug: "educacao", ordem: 15 },
+  { nome: "Cartão de crédito", slug: "cartao_de_credito", ordem: 16 },
+  { nome: "Impostos", slug: "impostos", ordem: 17 },
+  { nome: "Outros", slug: "outros_despesa", ordem: 99 },
+] as const;
 
 const supabase = createClient();
 
@@ -109,10 +158,27 @@ export default function MovimentacoesPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedItem, setSelectedItem] = useState<Movimentacao | null>(null);
   const [loading, setLoading] = useState(true);
+  const [categoriasOpen, setCategoriasOpen] = useState(false);
+  const [categoriaTab, setCategoriaTab] = useState<CategoryManagerTab>("entrada");
+  const [categoriasEntrada, setCategoriasEntrada] = useState<CategoryOption[]>([]);
+  const [categoriasDespesa, setCategoriasDespesa] = useState<CategoryOption[]>([]);
+  const [loadingCategorias, setLoadingCategorias] = useState(true);
+  const [novaCategoriaNome, setNovaCategoriaNome] = useState("");
+  const [editingCategoriaId, setEditingCategoriaId] = useState<string | null>(null);
+  const [editingCategoriaNome, setEditingCategoriaNome] = useState("");
 
   const [formData, setFormData] = useState(getInitialFormData());
 
-  const categoriasAtuais = getCategoryOptions(formType);
+  const categoriasAtuais =
+    formType === "entrada" ? categoriasEntrada : categoriasDespesa;
+
+  const categoriasGerenciadasAtuais =
+    categoriaTab === "entrada" ? categoriasEntrada : categoriasDespesa;
+
+  const todasCategorias = useMemo(
+    () => [...categoriasEntrada, ...categoriasDespesa],
+    [categoriasEntrada, categoriasDespesa]
+  );
 
   const cartoesMap = useMemo(
     () => new Map(cartoes.map((cartao) => [cartao.id, cartao.nome])),
@@ -136,6 +202,117 @@ export default function MovimentacoesPage() {
     formData.tipoPagamento,
     formType,
   ]);
+
+  const seedCategoriasPadrao = useCallback(async (userId: string) => {
+    const payload = [
+      ...CATEGORIAS_PADRAO_ENTRADA.map((item) => ({
+        user_id: userId,
+        tipo: "entrada" as const,
+        nome: item.nome,
+        slug: item.slug,
+        ordem: item.ordem,
+        ativa: true,
+      })),
+      ...CATEGORIAS_PADRAO_DESPESA.map((item) => ({
+        user_id: userId,
+        tipo: "despesa" as const,
+        nome: item.nome,
+        slug: item.slug,
+        ordem: item.ordem,
+        ativa: true,
+      })),
+    ];
+
+    const { error } = await supabase
+      .from("movimentacoes_categorias")
+      .upsert(payload, { onConflict: "user_id,tipo,slug" });
+
+    if (error) {
+      console.error("Erro ao semear categorias padrão:", error);
+      throw error;
+    }
+  }, []);
+
+  const carregarCategorias = useCallback(async () => {
+    setLoadingCategorias(true);
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) {
+      console.error("Erro ao buscar usuário:", userError);
+      setLoadingCategorias(false);
+      return;
+    }
+
+    if (!user) {
+      setCategoriasEntrada([]);
+      setCategoriasDespesa([]);
+      setLoadingCategorias(false);
+      return;
+    }
+
+    const { data: categoriasData, error: categoriasError } = await supabase
+      .from("movimentacoes_categorias")
+      .select("id, tipo, nome, slug, ordem, ativa")
+      .eq("ativa", true)
+      .order("ordem", { ascending: true })
+      .order("nome", { ascending: true });
+
+    if (categoriasError) {
+      console.error("Erro ao carregar categorias:", categoriasError);
+      alert("Erro ao carregar categorias.");
+      setLoadingCategorias(false);
+      return;
+    }
+
+    let data = categoriasData;
+
+    if (!data || data.length === 0) {
+      await seedCategoriasPadrao(user.id);
+
+      const secondLoad = await supabase
+        .from("movimentacoes_categorias")
+        .select("id, tipo, nome, slug, ordem, ativa")
+        .eq("ativa", true)
+        .order("ordem", { ascending: true })
+        .order("nome", { ascending: true });
+
+      if (secondLoad.error) {
+        console.error("Erro ao recarregar categorias:", secondLoad.error);
+        alert("Erro ao carregar categorias.");
+        setLoadingCategorias(false);
+        return;
+      }
+
+      data = secondLoad.data;
+    }
+
+    const rows = (data as DbMovimentacaoCategoria[] | null) ?? [];
+    const entradas = rows
+      .filter((item) => item.tipo === "entrada")
+      .map((item) => ({
+        id: item.id,
+        label: item.nome,
+        slug: item.slug,
+        ordem: item.ordem ?? 0,
+      }));
+
+    const despesas = rows
+      .filter((item) => item.tipo === "despesa")
+      .map((item) => ({
+        id: item.id,
+        label: item.nome,
+        slug: item.slug,
+        ordem: item.ordem ?? 0,
+      }));
+
+    setCategoriasEntrada(entradas);
+    setCategoriasDespesa(despesas);
+    setLoadingCategorias(false);
+  }, [seedCategoriasPadrao]);
 
   const carregarMovimentacoes = useCallback(async () => {
     const { data, error } = await supabase
@@ -178,12 +355,16 @@ export default function MovimentacoesPage() {
   useEffect(() => {
     async function init() {
       setLoading(true);
-      await Promise.all([carregarMovimentacoes(), carregarCartoes()]);
+      await Promise.all([
+        carregarMovimentacoes(),
+        carregarCartoes(),
+        carregarCategorias(),
+      ]);
       setLoading(false);
     }
 
     void init();
-  }, [carregarMovimentacoes, carregarCartoes]);
+  }, [carregarCategorias, carregarMovimentacoes, carregarCartoes]);
 
  useEffect(() => {
   const abrir = searchParams.get("abrir");
@@ -226,6 +407,162 @@ export default function MovimentacoesPage() {
     resetForm();
   }
 
+
+  function openCategorias(tab: CategoryManagerTab = "entrada") {
+    setCategoriaTab(tab);
+    setNovaCategoriaNome("");
+    setEditingCategoriaId(null);
+    setEditingCategoriaNome("");
+    setCategoriasOpen(true);
+  }
+
+  function closeCategorias() {
+    setCategoriasOpen(false);
+    setNovaCategoriaNome("");
+    setEditingCategoriaId(null);
+    setEditingCategoriaNome("");
+  }
+
+  function startEditCategoria(categoria: CategoryOption) {
+    setEditingCategoriaId(categoria.id);
+    setEditingCategoriaNome(categoria.label);
+  }
+
+  function cancelEditCategoria() {
+    setEditingCategoriaId(null);
+    setEditingCategoriaNome("");
+  }
+
+  async function handleAddCategoria() {
+    const nome = novaCategoriaNome.trim();
+
+    if (!nome) {
+      alert("Informe o nome da categoria.");
+      return;
+    }
+
+    const listaAtual =
+      categoriaTab === "entrada" ? categoriasEntrada : categoriasDespesa;
+    const slug = slugify(nome);
+
+    const jaExiste = listaAtual.some(
+      (categoria) =>
+        categoria.label.trim().toLowerCase() === nome.toLowerCase() ||
+        categoria.slug === slug
+    );
+
+    if (jaExiste) {
+      alert("Já existe uma categoria com esse nome.");
+      return;
+    }
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      alert("Usuário não autenticado.");
+      return;
+    }
+
+    const ordemBase =
+      listaAtual.reduce(
+        (maior, categoria) => Math.max(maior, categoria.ordem ?? 0),
+        0
+      ) + 1;
+
+    const { error } = await supabase.from("movimentacoes_categorias").insert({
+      user_id: user.id,
+      tipo: categoriaTab,
+      nome,
+      slug,
+      ordem: ordemBase,
+      ativa: true,
+    });
+
+    if (error) {
+      console.error("Erro ao criar categoria:", error);
+      alert("Erro ao criar categoria.");
+      return;
+    }
+
+    setNovaCategoriaNome("");
+    await carregarCategorias();
+  }
+
+  async function handleSaveCategoriaEdit() {
+    const nome = editingCategoriaNome.trim();
+
+    if (!editingCategoriaId) return;
+
+    if (!nome) {
+      alert("Informe o nome da categoria.");
+      return;
+    }
+
+    const listaAtual =
+      categoriaTab === "entrada" ? categoriasEntrada : categoriasDespesa;
+    const slug = slugify(nome);
+
+    const jaExiste = listaAtual.some(
+      (categoria) =>
+        categoria.id !== editingCategoriaId &&
+        (categoria.label.trim().toLowerCase() === nome.toLowerCase() ||
+          categoria.slug === slug)
+    );
+
+    if (jaExiste) {
+      alert("Já existe uma categoria com esse nome.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("movimentacoes_categorias")
+      .update({ nome, slug })
+      .eq("id", editingCategoriaId);
+
+    if (error) {
+      console.error("Erro ao editar categoria:", error);
+      alert("Erro ao editar categoria.");
+      return;
+    }
+
+    cancelEditCategoria();
+    await carregarCategorias();
+  }
+
+  async function handleDeleteCategoria(categoria: CategoryOption) {
+    const emUso = movimentacoes.some((item) => item.categoria === categoria.id);
+
+    if (emUso) {
+      alert("Essa categoria já está em uso e não pode ser excluída agora.");
+      return;
+    }
+
+    const confirmar = window.confirm(
+      `Deseja excluir a categoria "${categoria.label}"?`
+    );
+    if (!confirmar) return;
+
+    const { error } = await supabase
+      .from("movimentacoes_categorias")
+      .update({ ativa: false })
+      .eq("id", categoria.id);
+
+    if (error) {
+      console.error("Erro ao desativar categoria:", error);
+      alert("Erro ao excluir categoria.");
+      return;
+    }
+
+    if (editingCategoriaId === categoria.id) {
+      cancelEditCategoria();
+    }
+
+    await carregarCategorias();
+  }
+
   function handleEdit(item: Movimentacao) {
     setEditingId(item.id);
     setFormType(item.tipo);
@@ -247,7 +584,7 @@ async function handleDelete(id: number) {
   if (!confirmar) return;
 
   const { error } = await supabase.rpc(
-    "excluir_movimentacao_com_estorno_meta",
+    "excluir_movimentacao_com_estorno_meta_e_transferencia",
     {
       p_movimentacao_id: id,
     }
@@ -436,8 +773,12 @@ async function handleDelete(id: number) {
           .filter((item) => item.tipo === "entrada")
           .map((item) => item.categoria)
       )
-    ).sort((a, b) => getCategoryLabel(a).localeCompare(getCategoryLabel(b)));
-  }, [movimentacoesDoMesVisual]);
+    ).sort((a, b) =>
+      resolveCategoryLabel(a, todasCategorias).localeCompare(
+        resolveCategoryLabel(b, todasCategorias)
+      )
+    );
+  }, [movimentacoesDoMesVisual, todasCategorias]);
 
   const categoriasDespesaDisponiveis = useMemo(() => {
     return Array.from(
@@ -446,8 +787,12 @@ async function handleDelete(id: number) {
           .filter((item) => item.tipo === "despesa")
           .map((item) => item.categoria)
       )
-    ).sort((a, b) => getCategoryLabel(a).localeCompare(getCategoryLabel(b)));
-  }, [movimentacoesDoMesVisual]);
+    ).sort((a, b) =>
+      resolveCategoryLabel(a, todasCategorias).localeCompare(
+        resolveCategoryLabel(b, todasCategorias)
+      )
+    );
+  }, [movimentacoesDoMesVisual, todasCategorias]);
 
   const listaBase = useMemo(() => {
     let base = movimentacoesDoMesVisual.filter((item) =>
@@ -482,7 +827,10 @@ async function handleDelete(id: number) {
     if (!termo) return listaBase;
 
     return listaBase.filter((item) => {
-      const categoriaLabel = getCategoryLabel(item.categoria).toLowerCase();
+      const categoriaLabel = resolveCategoryLabel(
+        item.categoria,
+        todasCategorias
+      ).toLowerCase();
       const nomeCartao = item.cartaoId
         ? (cartoesMap.get(item.cartaoId) ?? "").toLowerCase()
         : "";
@@ -493,7 +841,7 @@ async function handleDelete(id: number) {
         nomeCartao.includes(termo)
       );
     });
-  }, [cartoesMap, listaBase, search]);
+  }, [cartoesMap, listaBase, search, todasCategorias]);
 
   const grupos = useMemo(() => {
     const mapa = new Map<string, Movimentacao[]>();
@@ -552,6 +900,15 @@ async function handleDelete(id: number) {
             >
               <Plus className="mr-2 h-4 w-4" />
               Nova despesa
+            </button>
+
+            <button
+              type="button"
+              onClick={() => openCategorias(activeTab === "entradas" ? "entrada" : "despesa")}
+              className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              <Tag className="mr-2 h-4 w-4" />
+              Gerenciar categorias
             </button>
           </div>
         }
@@ -677,7 +1034,7 @@ async function handleDelete(id: number) {
                     <option value="todas">Todas as categorias</option>
                     {categoriasEntradaDisponiveis.map((categoria) => (
                       <option key={categoria} value={categoria}>
-                        {getCategoryLabel(categoria)}
+                        {resolveCategoryLabel(categoria, todasCategorias)}
                       </option>
                     ))}
                   </select>
@@ -690,7 +1047,7 @@ async function handleDelete(id: number) {
                     <option value="todas">Todas as categorias</option>
                     {categoriasDespesaDisponiveis.map((categoria) => (
                       <option key={categoria} value={categoria}>
-                        {getCategoryLabel(categoria)}
+                        {resolveCategoryLabel(categoria, todasCategorias)}
                       </option>
                     ))}
                   </select>
@@ -745,12 +1102,12 @@ async function handleDelete(id: number) {
                 {search && <FiltroChip label={`Busca: ${search}`} />}
                 {activeTab === "entradas" && filtroCategoriaEntrada !== "todas" && (
                   <FiltroChip
-                    label={`Categoria: ${getCategoryLabel(filtroCategoriaEntrada)}`}
+                    label={`Categoria: ${resolveCategoryLabel(filtroCategoriaEntrada, categoriasEntrada)}`}
                   />
                 )}
                 {activeTab === "despesas" && filtroCategoriaDespesa !== "todas" && (
                   <FiltroChip
-                    label={`Categoria: ${getCategoryLabel(filtroCategoriaDespesa)}`}
+                    label={`Categoria: ${resolveCategoryLabel(filtroCategoriaDespesa, categoriasDespesa)}`}
                   />
                 )}
                 {activeTab === "despesas" && filtroPagamentoDespesa !== "todos" && (
@@ -802,25 +1159,27 @@ async function handleDelete(id: number) {
                       {itens.map((item) =>
                         item.tipo === "entrada" ? (
                           <CardEntradaPremium
-                            key={item.id}
-                            item={item}
-                            onOpen={() => setSelectedItem(item)}
-                            onEdit={() => handleEdit(item)}
-                            onDelete={() => void handleDelete(item.id)}
-                          />
+  key={item.id}
+  item={item}
+  categoryOptions={todasCategorias}
+  onOpen={() => setSelectedItem(item)}
+  onEdit={() => handleEdit(item)}
+  onDelete={() => void handleDelete(item.id)}
+/>
                         ) : (
                           <CardDespesaPremium
-                            key={item.id}
-                            item={item}
-                            nomeCartao={
-                              item.cartaoId
-                                ? (cartoesMap.get(item.cartaoId) ?? "-")
-                                : "-"
-                            }
-                            onOpen={() => setSelectedItem(item)}
-                            onEdit={() => handleEdit(item)}
-                            onDelete={() => void handleDelete(item.id)}
-                          />
+  key={item.id}
+  item={item}
+  nomeCartao={
+    item.cartaoId
+      ? (cartoesMap.get(item.cartaoId) ?? "-")
+      : "-"
+  }
+  categoryOptions={todasCategorias}
+  onOpen={() => setSelectedItem(item)}
+  onEdit={() => handleEdit(item)}
+  onDelete={() => void handleDelete(item.id)}
+/>
                         )
                       )}
                     </div>
@@ -835,285 +1194,480 @@ async function handleDelete(id: number) {
       {sheetOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-[1px]"
+            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]"
             onClick={closeSheet}
           />
 
-          <aside className="fixed right-0 top-0 z-50 flex h-screen w-full max-w-xl flex-col border-l border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-900">
-                  {sheetTitle}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {sheetDescription}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeSheet}
-                className="rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={handleSubmit}
-              className="flex flex-1 flex-col overflow-y-auto"
-            >
-              <div className="space-y-6 px-6 py-6">
-                <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-6">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Dados principais
-                  </h3>
-
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium text-slate-700">
-                      Tipo
-                    </label>
-
-                    <div className="flex gap-2 rounded-xl bg-slate-100 p-1">
-                      <button
-                        type="button"
-                        onClick={() => setFormType("entrada")}
-                        className={
-                          formType === "entrada"
-                            ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm"
-                            : "flex-1 rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900"
-                        }
-                      >
-                        Entrada
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setFormType("despesa")}
-                        className={
-                          formType === "despesa"
-                            ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm"
-                            : "flex-1 rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900"
-                        }
-                      >
-                        Despesa
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium text-slate-700">
-                      Descrição
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ex.: Corridas Uber, Mercado, Salário..."
-                      value={formData.descricao}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          descricao: e.target.value,
-                        }))
-                      }
-                      className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                    />
-                  </div>
-
-                  <div className="grid gap-5 md:grid-cols-2">
-                    <div className="grid gap-2">
-                      <label className="text-sm font-medium text-slate-700">
-                        Valor
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="0,00"
-                        value={formData.valor}
-                        onChange={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            valor: e.target.value,
-                          }))
-                        }
-                        className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <label className="text-sm font-medium text-slate-700">
-                        Data
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.data}
-                        onChange={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            data: e.target.value,
-                          }))
-                        }
-                        className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium text-slate-700">
-                      Categoria
-                    </label>
-                    <select
-                      value={formData.categoria}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          categoria: e.target.value,
-                        }))
-                      }
-                      className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                    >
-                      <option value="">Selecione</option>
-                      {categoriasAtuais.map((categoria) => (
-                        <option key={categoria.id} value={categoria.id}>
-                          {categoria.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-4xl border border-slate-200 bg-white shadow-2xl">
+              <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-900">
+                    {sheetTitle}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {sheetDescription}
+                  </p>
                 </div>
 
-                {formType === "despesa" && (
-                  <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-6">
-                    <h3 className="text-sm font-semibold text-slate-900">
-                      Pagamento
-                    </h3>
-
-                    <div className="grid gap-2">
-                      <label className="text-sm font-medium text-slate-700">
-                        Tipo de pagamento
-                      </label>
-                      <select
-                        value={formData.tipoPagamento}
-                        onChange={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            tipoPagamento: e.target.value as PaymentType,
-                            cartaoId:
-                              e.target.value === "credito" ? prev.cartaoId : "",
-                            parcelas:
-                              e.target.value === "credito" ? prev.parcelas : "",
-                            primeiraCobranca:
-                              e.target.value === "credito"
-                                ? prev.primeiraCobranca
-                                : "",
-                          }))
-                        }
-                        className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                      >
-                        <option value="pix_dinheiro">PIX / Dinheiro</option>
-                        <option value="debito">Cartão de Débito</option>
-                        <option value="credito">Cartão de Crédito</option>
-                      </select>
-                    </div>
-
-                    {formData.tipoPagamento === "credito" && (
-                      <>
-                        <div className="grid gap-2">
-                          <label className="text-sm font-medium text-slate-700">
-                            Cartão
-                          </label>
-                          <select
-                            value={formData.cartaoId}
-                            onChange={(e) =>
-                              setFormData((prev) => ({
-                                ...prev,
-                                cartaoId: e.target.value,
-                              }))
-                            }
-                            className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                          >
-                            <option value="">Selecione</option>
-                            {cartoes.map((cartao) => (
-                              <option key={cartao.id} value={cartao.id}>
-                                {cartao.nome}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="grid gap-5 md:grid-cols-2">
-                          <div className="grid gap-2">
-                            <label className="text-sm font-medium text-slate-700">
-                              Parcelas
-                            </label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={formData.parcelas}
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  parcelas: e.target.value,
-                                }))
-                              }
-                              className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                            />
-                          </div>
-
-                          <div className="grid gap-2">
-                            <label className="text-sm font-medium text-slate-700">
-                              Primeira cobrança
-                            </label>
-                            <input
-                              type="month"
-                              value={
-                                formData.primeiraCobranca || primeiraCobrancaSugerida
-                              }
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  primeiraCobranca: e.target.value,
-                                }))
-                              }
-                              className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                          Essa despesa vai aparecer no seu histórico na data da compra,
-                          mas entra na{" "}
-                          <span className="font-semibold">
-                            fatura{" "}
-                            {formatCompetencia(
-                              formData.primeiraCobranca || primeiraCobrancaSugerida
-                            )}
-                          </span>
-                          .
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-auto flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
                 <button
                   type="button"
                   onClick={closeSheet}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  className="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
                 >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95"
-                >
-                  {editingId !== null ? "Salvar alterações" : "Salvar"}
+                  <X className="h-4 w-4" />
                 </button>
               </div>
-            </form>
-          </aside>
+
+              <form
+                onSubmit={handleSubmit}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-6">
+                  <div className="space-y-5 rounded-3xl border border-slate-200 bg-slate-50/60 p-6">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">
+                          Dados principais
+                        </h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Registre a movimentação com descrição, valor, data e categoria.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => openCategorias(formType)}
+                        className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        <Tag className="mr-2 h-4 w-4" />
+                        Gerenciar categorias
+                      </button>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <label className="text-sm font-medium text-slate-700">
+                        Tipo
+                      </label>
+
+                      <div className="flex gap-2 rounded-2xl bg-slate-100 p-1">
+                        <button
+                          type="button"
+                          onClick={() => setFormType("entrada")}
+                          className={
+                            formType === "entrada"
+                              ? "flex-1 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-slate-900 shadow-sm"
+                              : "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+                          }
+                        >
+                          Entrada
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setFormType("despesa")}
+                          className={
+                            formType === "despesa"
+                              ? "flex-1 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-slate-900 shadow-sm"
+                              : "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+                          }
+                        >
+                          Despesa
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="grid gap-2 md:col-span-2">
+                        <label className="text-sm font-medium text-slate-700">
+                          Descrição
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex.: Corridas Uber, Mercado, Salário..."
+                          value={formData.descricao}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              descricao: e.target.value,
+                            }))
+                          }
+                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium text-slate-700">
+                          Valor
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0,00"
+                          value={formData.valor}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              valor: e.target.value,
+                            }))
+                          }
+                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium text-slate-700">
+                          Data
+                        </label>
+                        <input
+                          type="date"
+                          value={formData.data}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              data: e.target.value,
+                            }))
+                          }
+                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                        />
+                      </div>
+
+                      <div className="grid gap-2 md:col-span-2">
+                        <label className="text-sm font-medium text-slate-700">
+                          Categoria
+                        </label>
+                        <select
+                          value={formData.categoria}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              categoria: e.target.value,
+                            }))
+                          }
+                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                        >
+                          <option value="">Selecione</option>
+                          {categoriasAtuais.map((categoria) => (
+                            <option key={categoria.id} value={categoria.id}>
+                              {categoria.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {formType === "despesa" && (
+                    <div className="space-y-5 rounded-3xl border border-slate-200 bg-slate-50/60 p-6">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">
+                          Pagamento
+                        </h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Defina como essa despesa afeta o financeiro real.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium text-slate-700">
+                          Tipo de pagamento
+                        </label>
+                        <select
+                          value={formData.tipoPagamento}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              tipoPagamento: e.target.value as PaymentType,
+                              cartaoId:
+                                e.target.value === "credito" ? prev.cartaoId : "",
+                              parcelas:
+                                e.target.value === "credito" ? prev.parcelas : "",
+                              primeiraCobranca:
+                                e.target.value === "credito"
+                                  ? prev.primeiraCobranca
+                                  : "",
+                            }))
+                          }
+                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                        >
+                          <option value="pix_dinheiro">PIX / Dinheiro</option>
+                          <option value="debito">Cartão de Débito</option>
+                          <option value="credito">Cartão de Crédito</option>
+                        </select>
+                      </div>
+
+                      {formData.tipoPagamento === "credito" && (
+                        <>
+                          <div className="grid gap-2">
+                            <label className="text-sm font-medium text-slate-700">
+                              Cartão
+                            </label>
+                            <select
+                              value={formData.cartaoId}
+                              onChange={(e) =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  cartaoId: e.target.value,
+                                }))
+                              }
+                              className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                            >
+                              <option value="">Selecione</option>
+                              {cartoes.map((cartao) => (
+                                <option key={cartao.id} value={cartao.id}>
+                                  {cartao.nome}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="grid gap-2">
+                              <label className="text-sm font-medium text-slate-700">
+                                Parcelas
+                              </label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={formData.parcelas}
+                                onChange={(e) =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    parcelas: e.target.value,
+                                  }))
+                                }
+                                className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                              />
+                            </div>
+
+                            <div className="grid gap-2">
+                              <label className="text-sm font-medium text-slate-700">
+                                Primeira cobrança
+                              </label>
+                              <input
+                                type="month"
+                                value={
+                                  formData.primeiraCobranca || primeiraCobrancaSugerida
+                                }
+                                onChange={(e) =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    primeiraCobranca: e.target.value,
+                                  }))
+                                }
+                                className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            Essa despesa vai aparecer no seu histórico na data da compra,
+                            mas entra na{" "}
+                            <span className="font-semibold">
+                              fatura {formatCompetencia(
+                                formData.primeiraCobranca || primeiraCobrancaSugerida
+                              )}
+                            </span>
+                            .
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-auto flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+                  <button
+                    type="button"
+                    onClick={closeSheet}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95"
+                  >
+                    {editingId !== null ? "Salvar alterações" : "Salvar"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </>
+      )}
+
+      {categoriasOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-[2px]"
+            onClick={closeCategorias}
+          />
+
+          <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
+            <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-4xl border border-slate-200 bg-white shadow-2xl">
+              <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
+                <div>
+                  <p className="text-sm font-medium text-slate-500">
+                    Gerenciar categorias
+                  </p>
+                  <h3 className="mt-1 text-xl font-semibold text-slate-900">
+                    Categorias de movimentações
+                  </h3>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeCategorias}
+                  className="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+                <div className="space-y-6">
+                  <div className="inline-flex w-fit rounded-2xl bg-slate-100 p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategoriaTab("entrada");
+                        cancelEditCategoria();
+                      }}
+                      className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
+                        categoriaTab === "entrada"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      Entradas
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategoriaTab("despesa");
+                        cancelEditCategoria();
+                      }}
+                      className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
+                        categoriaTab === "despesa"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      Despesas
+                    </button>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50/60 p-5">
+                    <h4 className="text-sm font-semibold text-slate-900">
+                      Nova categoria
+                    </h4>
+                    {loadingCategorias ? (
+                      <p className="mt-2 text-sm text-slate-500">Carregando categorias...</p>
+                    ) : null}
+                    <p className="mt-1 text-sm text-slate-500">
+                      As categorias desta tela ficam salvas no Supabase e vinculadas ao seu usuário.
+                    </p>
+
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                      <input
+                        type="text"
+                        value={novaCategoriaNome}
+                        onChange={(e) => setNovaCategoriaNome(e.target.value)}
+                        placeholder={`Nome da categoria de ${categoriaTab === "entrada" ? "entrada" : "despesa"}`}
+                        className="h-12 flex-1 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={handleAddCategoria}
+                        className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-900 px-5 text-sm font-medium text-white transition hover:opacity-95"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Adicionar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {categoriasGerenciadasAtuais.map((categoria) => {
+                      const emEdicao = editingCategoriaId === categoria.id;
+
+                      return (
+                        <div
+                          key={categoria.id}
+                          className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+                        >
+                          {emEdicao ? (
+                            <div className="space-y-3">
+                              <input
+                                type="text"
+                                value={editingCategoriaNome}
+                                onChange={(e) => setEditingCategoriaNome(e.target.value)}
+                                className="h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                              />
+
+                              <div className="flex flex-wrap justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={cancelEditCategoria}
+                                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                                >
+                                  Cancelar
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={handleSaveCategoriaEdit}
+                                  className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:opacity-95"
+                                >
+                                  <Check className="mr-2 h-4 w-4" />
+                                  Salvar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {categoria.label}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Categoria sincronizada com o Supabase
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => startEditCategoria(categoria)}
+                                  className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                                >
+                                  <Pencil className="mr-2 h-4 w-4" />
+                                  Editar
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCategoria(categoria)}
+                                  className="inline-flex items-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-100"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Excluir
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       )}
 
@@ -1163,7 +1717,7 @@ async function handleDelete(id: number) {
                   <DetalheItem label="Data" value={formatDate(selectedItem.data)} />
                   <DetalheItem
                     label="Categoria"
-                    value={getCategoryLabel(selectedItem.categoria)}
+                    value={resolveCategoryLabel(selectedItem.categoria, todasCategorias)}
                   />
                 </div>
 
@@ -1289,6 +1843,7 @@ function mapDbToUi(item: DbMovimentacao): Movimentacao {
     primeiraCobranca: item.primeira_cobranca,
     metaId: item.meta_id,
     metaAporteId: item.meta_aporte_id,
+    rvTransferenciaId: item.rv_transferencia_id,
   };
 }
 
@@ -1408,11 +1963,13 @@ function AcaoItem({
 
 function CardEntradaPremium({
   item,
+  categoryOptions,
   onEdit,
   onDelete,
   onOpen,
 }: {
   item: Movimentacao;
+  categoryOptions: CategoryOption[];
   onEdit: () => void;
   onDelete: () => void;
   onOpen: () => void;
@@ -1450,7 +2007,7 @@ function CardEntradaPremium({
 
                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
                   <Tag className="h-3.5 w-3.5" />
-                  {getCategoryLabel(item.categoria)}
+                  {resolveCategoryLabel(item.categoria, categoryOptions)}
                 </span>
               </div>
             </div>
@@ -1482,12 +2039,14 @@ function CardEntradaPremium({
 function CardDespesaPremium({
   item,
   nomeCartao,
+  categoryOptions,
   onEdit,
   onDelete,
   onOpen,
 }: {
   item: Movimentacao;
   nomeCartao: string;
+  categoryOptions: CategoryOption[];
   onEdit: () => void;
   onDelete: () => void;
   onOpen: () => void;
@@ -1532,7 +2091,7 @@ function CardDespesaPremium({
 
                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
                   <Tag className="h-3.5 w-3.5" />
-                  {getCategoryLabel(item.categoria)}
+                  {resolveCategoryLabel(item.categoria, categoryOptions)}
                 </span>
 
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
@@ -1618,6 +2177,34 @@ function EmptyStatePremium({
       </p>
     </div>
   );
+}
+
+function resolveCategoryLabel(
+  categoriaId: string,
+  options?:
+    | Array<{ id: string; label: string }>
+    | Array<{ slug: string; nome: string }>
+) {
+  if (!categoriaId) return "Sem categoria";
+
+  if (!options) return categoriaId;
+
+  const found = options.find((item) =>
+    "id" in item ? item.id === categoriaId : item.slug === categoriaId
+  );
+
+  if (!found) return categoriaId;
+
+  return "label" in found ? found.label : found.nome;
+}
+
+function slugify(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function getMesAtual() {

@@ -52,7 +52,7 @@ type PagamentoFatura = {
   cartao_id: number;
   mes_referencia: string;
   valor_pago: number;
-  data_pagamento: string;
+  data_pagamento: string | null;
   status: string;
 };
 
@@ -68,6 +68,16 @@ type ParcelaProjetada = {
 type LinhaSaldoInicial = {
   mes: string;
   valor: string;
+};
+
+type ModalPagamentoState = {
+  aberto: boolean;
+  cartaoId: number | null;
+  cartaoNome: string;
+  mesReferencia: string;
+  valorTotal: number;
+  valorPagoAtual: number;
+  valorRestante: number;
 };
 
 const supabase = createClient();
@@ -100,6 +110,18 @@ export default function CartoesPage() {
     { mes: getMesAtual(), valor: "" },
   ]);
   const [salvandoSaldoInicial, setSalvandoSaldoInicial] = useState(false);
+
+  const [modalPagamento, setModalPagamento] = useState<ModalPagamentoState>({
+    aberto: false,
+    cartaoId: null,
+    cartaoNome: "",
+    mesReferencia: "",
+    valorTotal: 0,
+    valorPagoAtual: 0,
+    valorRestante: 0,
+  });
+  const [valorPagamentoModal, setValorPagamentoModal] = useState("");
+  const [salvandoPagamentoModal, setSalvandoPagamentoModal] = useState(false);
 
   const carregarDados = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -144,23 +166,26 @@ export default function CartoesPage() {
     }
 
     setCartoes(
-  ((cartoesData as Cartao[]) ?? []).map((item) => ({
-    ...item,
-    limite: Number(item.limite ?? 0),
-    fechamento_dia: Number(item.fechamento_dia ?? 0),
-    vencimento_dia: Number(item.vencimento_dia ?? 0),
-  }))
-);
+      ((cartoesData as Cartao[]) ?? []).map((item) => ({
+        ...item,
+        limite: Number(item.limite ?? 0),
+        fechamento_dia: Number(item.fechamento_dia ?? 0),
+        vencimento_dia: Number(item.vencimento_dia ?? 0),
+      }))
+    );
+
     setDespesasCartao(
       ((movimentacoesData as DespesaCartao[]) ?? []).map((item) => ({
         ...item,
         valor: Number(item.valor),
       }))
     );
+
     setPagamentos(
       ((pagamentosData as PagamentoFatura[]) ?? []).map((item) => ({
         ...item,
-        valor_pago: Number(item.valor_pago),
+        valor_pago: Number(item.valor_pago ?? 0),
+        data_pagamento: item.data_pagamento ?? null,
       }))
     );
 
@@ -190,25 +215,25 @@ export default function CartoesPage() {
   }
 
   function handleEditarCartao(cartao: Cartao) {
-  setIdEmEdicao(cartao.id);
-  setNome(cartao.nome ?? "");
-  setLimite(
-    cartao.limite === null || Number.isNaN(Number(cartao.limite ?? 0))
-      ? ""
-      : String(cartao.limite)
-  );
-  setFechamentoDia(
-    cartao.fechamento_dia === null || Number.isNaN(Number(cartao.fechamento_dia))
-      ? ""
-      : String(cartao.fechamento_dia)
-  );
-  setVencimentoDia(
-    cartao.vencimento_dia === null || Number.isNaN(Number(cartao.vencimento_dia))
-      ? ""
-      : String(cartao.vencimento_dia)
-  );
-  setSheetCartaoAberto(true);
-}
+    setIdEmEdicao(cartao.id);
+    setNome(cartao.nome ?? "");
+    setLimite(
+      cartao.limite === null || Number.isNaN(Number(cartao.limite ?? 0))
+        ? ""
+        : String(cartao.limite)
+    );
+    setFechamentoDia(
+      cartao.fechamento_dia === null || Number.isNaN(Number(cartao.fechamento_dia))
+        ? ""
+        : String(cartao.fechamento_dia)
+    );
+    setVencimentoDia(
+      cartao.vencimento_dia === null || Number.isNaN(Number(cartao.vencimento_dia))
+        ? ""
+        : String(cartao.vencimento_dia)
+    );
+    setSheetCartaoAberto(true);
+  }
 
   async function handleExcluirCartao(id: number) {
     const confirmar = window.confirm("Deseja excluir este cartão?");
@@ -217,22 +242,22 @@ export default function CartoesPage() {
     const { error } = await supabase.from("cartoes").delete().eq("id", id);
 
     if (error) {
-  console.error("Erro ao atualizar cartão:", {
-    message: error.message,
-    details: error.details,
-    hint: error.hint,
-    code: error.code,
-    full: error,
-  });
+      console.error("Erro ao excluir cartão:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        full: error,
+      });
 
-  alert(
-    `Erro ao atualizar cartão:
+      alert(
+        `Erro ao excluir cartão:
 ${error.message ?? "sem mensagem"}
 ${error.details ? `\nDetails: ${error.details}` : ""}
 ${error.hint ? `\nHint: ${error.hint}` : ""}`
-  );
-  return;
-}
+      );
+      return;
+    }
 
     await carregarDados(false);
   }
@@ -286,22 +311,22 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         .eq("id", idEmEdicao);
 
       if (error) {
-  console.error("Erro ao salvar cartão:", {
-    message: error.message,
-    details: error.details,
-    hint: error.hint,
-    code: error.code,
-    full: error,
-  });
+        console.error("Erro ao salvar cartão:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          full: error,
+        });
 
-  alert(
-    `Erro ao salvar cartão:
+        alert(
+          `Erro ao salvar cartão:
 ${error.message ?? "sem mensagem"}
 ${error.details ? `\nDetails: ${error.details}` : ""}
 ${error.hint ? `\nHint: ${error.hint}` : ""}`
-  );
-  return;
-}
+        );
+        return;
+      }
 
       fecharSheetCartao();
       await carregarDados(false);
@@ -320,13 +345,54 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
     await carregarDados(false);
   }
 
+  function abrirModalPagamento(params: {
+    cartaoId: number;
+    cartaoNome: string;
+    mesReferencia: string;
+    valorTotal: number;
+    valorPagoAtual: number;
+  }) {
+    const valorRestante = Math.max(params.valorTotal - params.valorPagoAtual, 0);
+
+    setModalPagamento({
+      aberto: true,
+      cartaoId: params.cartaoId,
+      cartaoNome: params.cartaoNome,
+      mesReferencia: params.mesReferencia,
+      valorTotal: params.valorTotal,
+      valorPagoAtual: params.valorPagoAtual,
+      valorRestante,
+    });
+
+    setValorPagamentoModal(
+      valorRestante > 0 ? valorRestante.toFixed(2) : ""
+    );
+  }
+
+  function fecharModalPagamento() {
+    if (salvandoPagamentoModal) return;
+
+    setModalPagamento({
+      aberto: false,
+      cartaoId: null,
+      cartaoNome: "",
+      mesReferencia: "",
+      valorTotal: 0,
+      valorPagoAtual: 0,
+      valorRestante: 0,
+    });
+    setValorPagamentoModal("");
+  }
+
   async function pagarFatura(
     cartaoId: number,
     mesReferencia: string,
-    valorTotal: number
+    valorTotal: number,
+    valorPagamento: number
   ) {
     const key = `${cartaoId}-${mesReferencia}`;
     setPagandoKey(key);
+    setSalvandoPagamentoModal(true);
 
     try {
       const pagamentoExistente = pagamentos.find(
@@ -334,13 +400,32 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
           item.cartao_id === cartaoId && item.mes_referencia === mesReferencia
       );
 
+      const valorPagoAtual = Number(pagamentoExistente?.valor_pago ?? 0);
+      const valorRestanteAtual = Math.max(valorTotal - valorPagoAtual, 0);
+
+      if (valorPagamento <= 0 || Number.isNaN(valorPagamento)) {
+        alert("Informe um valor de pagamento válido.");
+        return;
+      }
+
+      if (valorPagamento > valorRestanteAtual) {
+        alert("O valor informado é maior que o restante da fatura.");
+        return;
+      }
+
+      const novoValorPago = valorPagoAtual + valorPagamento;
+      const novoRestante = Math.max(valorTotal - novoValorPago, 0);
+
+      const novoStatus =
+        novoValorPago <= 0 ? "aberta" : novoRestante <= 0 ? "paga" : "parcial";
+
       if (pagamentoExistente) {
         const { data, error } = await supabase
           .from("faturas_pagamento")
           .update({
-            valor_pago: valorTotal,
+            valor_pago: novoValorPago,
             data_pagamento: getDataHoje(),
-            status: "paga",
+            status: novoStatus,
           })
           .eq("id", pagamentoExistente.id)
           .select()
@@ -355,11 +440,16 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         setPagamentos((prev) =>
           prev.map((item) =>
             item.id === pagamentoExistente.id
-              ? { ...(data as PagamentoFatura), valor_pago: Number(data.valor_pago) }
+              ? {
+                  ...(data as PagamentoFatura),
+                  valor_pago: Number(data.valor_pago ?? 0),
+                  data_pagamento: data.data_pagamento ?? null,
+                }
               : item
           )
         );
 
+        fecharModalPagamento();
         return;
       }
 
@@ -368,9 +458,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         .insert({
           cartao_id: cartaoId,
           mes_referencia: mesReferencia,
-          valor_pago: valorTotal,
+          valor_pago: novoValorPago,
           data_pagamento: getDataHoje(),
-          status: "paga",
+          status: novoStatus,
         })
         .select()
         .single();
@@ -383,11 +473,31 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
 
       setPagamentos((prev) => [
         ...prev,
-        { ...(data as PagamentoFatura), valor_pago: Number(data.valor_pago) },
+        {
+          ...(data as PagamentoFatura),
+          valor_pago: Number(data.valor_pago ?? 0),
+          data_pagamento: data.data_pagamento ?? null,
+        },
       ]);
+
+      fecharModalPagamento();
     } finally {
       setPagandoKey(null);
+      setSalvandoPagamentoModal(false);
     }
+  }
+
+  async function confirmarPagamentoModal() {
+    if (!modalPagamento.cartaoId) return;
+
+    const valor = Number(valorPagamentoModal);
+
+    await pagarFatura(
+      modalPagamento.cartaoId,
+      modalPagamento.mesReferencia,
+      modalPagamento.valorTotal,
+      valor
+    );
   }
 
   async function desfazerPagamento(cartaoId: number, mesReferencia: string) {
@@ -405,6 +515,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
       const { data, error } = await supabase
         .from("faturas_pagamento")
         .update({
+          valor_pago: 0,
+          data_pagamento: null,
           status: "aberta",
         })
         .eq("id", pagamentoExistente.id)
@@ -420,7 +532,11 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
       setPagamentos((prev) =>
         prev.map((item) =>
           item.id === pagamentoExistente.id
-            ? { ...(data as PagamentoFatura), valor_pago: Number(data.valor_pago) }
+            ? {
+                ...(data as PagamentoFatura),
+                valor_pago: Number(data.valor_pago ?? 0),
+                data_pagamento: data.data_pagamento ?? null,
+              }
             : item
         )
       );
@@ -614,13 +730,24 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
             (item) => item.cartao_id === cartao.id && item.mes_referencia === mes
           );
 
+          const total = itens.reduce((acc, item) => acc + item.valor, 0);
+          const valorPago = Number(pagamento?.valor_pago ?? 0);
+          const restante = Math.max(total - valorPago, 0);
+          const status = obterStatusFatura({
+            total,
+            valorPago,
+            statusBanco: pagamento?.status,
+          });
+
           return {
             mes,
-            total: itens.reduce((acc, item) => acc + item.valor, 0),
+            total,
             itens,
             vencimento: formatarVencimento(mes, cartao.vencimento_dia),
-            status: pagamento?.status ?? "aberta",
+            status,
             pagamento: pagamento ?? null,
+            valorPago,
+            restante,
           };
         })
         .sort((a, b) => a.mes.localeCompare(b.mes));
@@ -937,7 +1064,7 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                             </p>
                           </div>
 
-                          <div className="grid gap-3 md:grid-cols-2 xl:min-w-130">
+                          <div className="grid gap-3 md:grid-cols-2 xl:min-w-lg">
                             <MiniResumoBox
                               label="Próxima fatura"
                               value={
@@ -1024,6 +1151,19 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                               const keyMes = `${cartao.id}-${mes.mes}`;
                               const abertoMes = mesAberto === keyMes;
                               const estaPagando = pagandoKey === keyMes;
+                              const statusVisual =
+                                mes.status === "paga"
+                                  ? "text-emerald-600"
+                                  : mes.status === "parcial"
+                                  ? "text-blue-600"
+                                  : "text-amber-600";
+
+                              const statusTexto =
+                                mes.status === "paga"
+                                  ? "Paga"
+                                  : mes.status === "parcial"
+                                  ? "Parcial"
+                                  : "Aberta";
 
                               return (
                                 <div
@@ -1050,79 +1190,158 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                       <p className="font-semibold text-slate-900">
                                         {moeda(mes.total)}
                                       </p>
-                                      <p
-                                        className={`text-xs font-medium ${
-                                          mes.status === "paga"
-                                            ? "text-emerald-600"
-                                            : "text-amber-600"
-                                        }`}
-                                      >
-                                        {mes.status === "paga" ? "Paga" : "Aberta"}
+                                      <p className={`text-xs font-medium ${statusVisual}`}>
+                                        {statusTexto}
                                       </p>
                                     </div>
                                   </button>
 
                                   <div className="border-t border-slate-200 p-4">
                                     {mes.status === "paga" ? (
-                                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                        <div className="flex items-start gap-3">
-                                          <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
-                                          <div>
-                                            <p className="text-sm font-medium text-slate-900">
-                                              Fatura quitada
-                                            </p>
-                                            <p className="text-xs text-slate-500">
-                                              {mes.pagamento?.data_pagamento
-                                                ? `Pago em ${mes.pagamento.data_pagamento}`
-                                                : "Pagamento registrado"}
-                                            </p>
+                                      <div className="flex flex-col gap-4">
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                          <div className="flex items-start gap-3">
+                                            <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+                                            <div>
+                                              <p className="text-sm font-medium text-slate-900">
+                                                Fatura quitada
+                                              </p>
+                                              <p className="text-xs text-slate-500">
+                                                {mes.pagamento?.data_pagamento
+                                                  ? `Pago em ${formatarDataPadraoBrasil(
+                                                      mes.pagamento.data_pagamento
+                                                    )}`
+                                                  : "Pagamento registrado"}
+                                              </p>
+                                            </div>
                                           </div>
+
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              void desfazerPagamento(cartao.id, mes.mes);
+                                            }}
+                                            disabled={estaPagando}
+                                            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                          >
+                                            {estaPagando
+                                              ? "Desfazendo..."
+                                              : "Desfazer pagamento"}
+                                          </button>
                                         </div>
 
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            void desfazerPagamento(cartao.id, mes.mes);
-                                          }}
-                                          disabled={estaPagando}
-                                          className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                                        >
-                                          {estaPagando
-                                            ? "Desfazendo..."
-                                            : "Desfazer pagamento"}
-                                        </button>
+                                        <div className="grid gap-3 md:grid-cols-3">
+                                          <MiniResumoBox
+                                            label="Total da fatura"
+                                            value={moeda(mes.total)}
+                                          />
+                                          <MiniResumoBox
+                                            label="Total pago"
+                                            value={moeda(mes.valorPago)}
+                                            valueClassName="text-emerald-600"
+                                          />
+                                          <MiniResumoBox
+                                            label="Restante"
+                                            value={moeda(mes.restante)}
+                                          />
+                                        </div>
                                       </div>
                                     ) : (
-                                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                        <div className="flex items-start gap-3">
-                                          <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
-                                          <div>
-                                            <p className="text-sm font-medium text-slate-900">
-                                              Pagamento da fatura
-                                            </p>
-                                            <p className="text-xs text-slate-500">
-                                              Ao pagar, essa competência passa a contar
-                                              como quitada.
-                                            </p>
-                                          </div>
+                                      <div className="flex flex-col gap-4">
+                                        <div className="grid gap-3 md:grid-cols-3">
+                                          <MiniResumoBox
+                                            label="Total da fatura"
+                                            value={moeda(mes.total)}
+                                          />
+                                          <MiniResumoBox
+                                            label="Pago até agora"
+                                            value={moeda(mes.valorPago)}
+                                            valueClassName={
+                                              mes.valorPago > 0 ? "text-blue-600" : undefined
+                                            }
+                                          />
+                                          <MiniResumoBox
+                                            label="Restante"
+                                            value={moeda(mes.restante)}
+                                            valueClassName="text-amber-600"
+                                          />
                                         </div>
 
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            void pagarFatura(
-                                              cartao.id,
-                                              mes.mes,
-                                              mes.total
-                                            );
-                                          }}
-                                          disabled={estaPagando || mes.status === "paga"}
-                                          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                                        >
-                                          {estaPagando ? "Pagando..." : "Pagar fatura"}
-                                        </button>
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                          <div className="flex items-start gap-3">
+                                            {mes.status === "parcial" ? (
+                                              <>
+                                                <CheckCircle2 className="mt-0.5 h-4 w-4 text-blue-600" />
+                                                <div>
+                                                  <p className="text-sm font-medium text-slate-900">
+                                                    Pagamento parcial registrado
+                                                  </p>
+                                                  <p className="text-xs text-slate-500">
+                                                    {mes.pagamento?.data_pagamento
+                                                      ? `Último pagamento em ${formatarDataPadraoBrasil(
+                                                          mes.pagamento.data_pagamento
+                                                        )}`
+                                                      : "Falta quitar o restante da fatura."}
+                                                  </p>
+                                                </div>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
+                                                <div>
+                                                  <p className="text-sm font-medium text-slate-900">
+                                                    Pagamento da fatura
+                                                  </p>
+                                                  <p className="text-xs text-slate-500">
+                                                    Você pode pagar o valor total ou apenas uma
+                                                    parte agora.
+                                                  </p>
+                                                </div>
+                                              </>
+                                            )}
+                                          </div>
+
+                                          <div className="flex flex-wrap gap-2">
+                                            {mes.valorPago > 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  void desfazerPagamento(cartao.id, mes.mes);
+                                                }}
+                                                disabled={estaPagando}
+                                                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                              >
+                                                {estaPagando
+                                                  ? "Desfazendo..."
+                                                  : "Desfazer pagamento"}
+                                              </button>
+                                            )}
+
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                abrirModalPagamento({
+                                                  cartaoId: cartao.id,
+                                                  cartaoNome: cartao.nome,
+                                                  mesReferencia: mes.mes,
+                                                  valorTotal: mes.total,
+                                                  valorPagoAtual: mes.valorPago,
+                                                });
+                                              }}
+                                              disabled={estaPagando}
+                                              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                            >
+                                              {estaPagando
+                                                ? "Processando..."
+                                                : mes.status === "parcial"
+                                                ? "Registrar novo pagamento"
+                                                : "Pagar fatura"}
+                                            </button>
+                                          </div>
+                                        </div>
                                       </div>
                                     )}
                                   </div>
@@ -1521,6 +1740,103 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
           </aside>
         </>
       )}
+
+      {modalPagamento.aberto && (
+        <>
+          <div
+            className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-[1px]"
+            onClick={fecharModalPagamento}
+          />
+
+          <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-[28px] border border-slate-200 bg-white shadow-2xl">
+              <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-900">
+                    Pagamento de fatura
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {modalPagamento.cartaoNome} • {formatarMes(modalPagamento.mesReferencia)}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fecharModalPagamento}
+                  disabled={salvandoPagamentoModal}
+                  className="rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-5 px-6 py-6">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <MiniResumoBox
+                    label="Total da fatura"
+                    value={moeda(modalPagamento.valorTotal)}
+                  />
+                  <MiniResumoBox
+                    label="Já pago"
+                    value={moeda(modalPagamento.valorPagoAtual)}
+                    valueClassName={
+                      modalPagamento.valorPagoAtual > 0 ? "text-blue-600" : undefined
+                    }
+                  />
+                  <MiniResumoBox
+                    label="Restante"
+                    value={moeda(modalPagamento.valorRestante)}
+                    valueClassName="text-amber-600"
+                  />
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <FieldBlock label="Valor do pagamento" htmlFor="valorPagamentoModal">
+                    <input
+                      id="valorPagamentoModal"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={modalPagamento.valorRestante}
+                      placeholder="Digite o valor a pagar"
+                      value={valorPagamentoModal}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                        setValorPagamentoModal(e.target.value)
+                      }
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
+                    />
+                  </FieldBlock>
+
+                  <p className="mt-3 text-xs text-slate-500">
+                    Você pode lançar um pagamento parcial. Quando o total pago alcançar o
+                    valor da fatura, ela será marcada como quitada.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={fecharModalPagamento}
+                  disabled={salvandoPagamentoModal}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void confirmarPagamentoModal()}
+                  disabled={salvandoPagamentoModal}
+                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvandoPagamentoModal ? "Salvando..." : "Confirmar pagamento"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }
@@ -1742,4 +2058,32 @@ function getProximaCompetencia(vencimentoDia: number) {
   const competenciaMes = String(dataCompetencia.getMonth() + 1).padStart(2, "0");
 
   return `${competenciaAno}-${competenciaMes}`;
+}
+
+function obterStatusFatura({
+  total,
+  valorPago,
+  statusBanco,
+}: {
+  total: number;
+  valorPago: number;
+  statusBanco?: string | null;
+}) {
+  if (valorPago >= total && total > 0) return "paga";
+  if (valorPago > 0 && valorPago < total) return "parcial";
+
+  if (statusBanco === "paga") return "paga";
+  if (statusBanco === "parcial") return "parcial";
+
+  return "aberta";
+}
+
+function formatarDataPadraoBrasil(data: string) {
+  if (!data) return "";
+
+  const partes = data.split("-");
+  if (partes.length !== 3) return data;
+
+  const [ano, mes, dia] = partes;
+  return `${dia}/${mes}/${ano}`;
 }

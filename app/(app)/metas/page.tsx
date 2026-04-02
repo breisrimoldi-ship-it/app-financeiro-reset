@@ -64,6 +64,11 @@ type MetaCalculada = MetaRow & {
   aportesDaMeta: MetaAporteRow[];
   prazoFormatado: string;
   prioridadeLabel: string;
+    totalAportado: number;
+  mediaMensalAportes: number;
+  mesesRestantes: number | null;
+  valorIdealMensal: number | null;
+  previsaoConclusaoTexto: string;
 };
 
 type MetaFormState = {
@@ -98,6 +103,61 @@ function formatarMoeda(valor: number) {
     style: "currency",
     currency: "BRL",
   });
+}
+function diferencaMesesEntreDatas(inicio: Date, fim: Date) {
+  const anos = fim.getFullYear() - inicio.getFullYear();
+  const meses = fim.getMonth() - inicio.getMonth();
+  const total = anos * 12 + meses;
+
+  return total < 0 ? 0 : total;
+}
+
+function somarAportesValidos(aportes: MetaAporteRow[]) {
+  return aportes.reduce((acc, item) => {
+    const valor = normalizarNumero(item.valor);
+
+    if (item.tipo === "aporte") return acc + valor;
+    if (item.tipo === "retirada") return acc - valor;
+    if (item.tipo === "ajuste") return acc + valor;
+
+    return acc;
+  }, 0);
+}
+
+function getMediaMensalAportes(aportes: MetaAporteRow[]) {
+  if (!aportes.length) return 0;
+
+  const total = somarAportesValidos(aportes);
+
+  const datasValidas = aportes
+    .map((item) => item.data)
+    .filter(Boolean)
+    .sort();
+
+  if (!datasValidas.length) return total;
+
+  const primeiraData = new Date(`${datasValidas[0]}T12:00:00`);
+  const hoje = new Date();
+  const meses = Math.max(diferencaMesesEntreDatas(primeiraData, hoje) + 1, 1);
+
+  return total / meses;
+}
+
+function getPrevisaoConclusaoTexto(
+  faltante: number,
+  mediaMensalAportes: number,
+  percentual: number
+) {
+  if (faltante <= 0 || percentual >= 100) return "Meta já concluída";
+
+  if (mediaMensalAportes <= 0) {
+    return "Sem histórico suficiente para prever";
+  }
+
+  const meses = Math.ceil(faltante / mediaMensalAportes);
+
+  if (meses <= 1) return "Previsão de conclusão em até 1 mês";
+  return `Previsão de conclusão em cerca de ${meses} meses`;
 }
 
 function formatarData(data: string | null | undefined) {
@@ -360,6 +420,13 @@ export default function MetasPage() {
   const [metaHistoricoAtual, setMetaHistoricoAtual] = useState<MetaCalculada | null>(
     null
   );
+  // 🔥 V12 - edição de aporte
+const [aporteEditando, setAporteEditando] = useState<MetaAporteRow | null>(null);
+const [valorEditando, setValorEditando] = useState("");
+const [aporteInteligenteModalOpen, setAporteInteligenteModalOpen] = useState(false);
+const [metaInteligenteSelecionadaId, setMetaInteligenteSelecionadaId] = useState("");
+const [valorAporteInteligente, setValorAporteInteligente] = useState("");
+const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
 
   const carregarDados = useCallback(async () => {
     try {
@@ -423,6 +490,20 @@ export default function MetasPage() {
       const valorInicialNumero = normalizarNumero(meta.valor_inicial);
       const faltante = Math.max(valorMetaNumero - valorAtualCalculado, 0);
       const percentual = getPercentual(valorAtualCalculado, valorMetaNumero);
+      const totalAportado = somarAportesValidos(aportesDaMeta);
+      const mediaMensalAportes = getMediaMensalAportes(aportesDaMeta);
+
+      const mesesRestantes = meta.prazo
+        ? Math.max(
+            diferencaMesesEntreDatas(new Date(), new Date(`${meta.prazo}T12:00:00`)),
+            0
+          ) + 1
+        : null;
+
+      const valorIdealMensal =
+        mesesRestantes && mesesRestantes > 0
+          ? faltante / mesesRestantes
+          : null;
 
       return {
         ...meta,
@@ -434,6 +515,15 @@ export default function MetasPage() {
         aportesDaMeta,
         prazoFormatado: formatarData(meta.prazo),
         prioridadeLabel: getPrioridadeLabel(meta.prioridade),
+        totalAportado,
+        mediaMensalAportes,
+        mesesRestantes,
+        valorIdealMensal,
+        previsaoConclusaoTexto: getPrevisaoConclusaoTexto(
+          faltante,
+          mediaMensalAportes,
+          percentual
+        ),
       };
     });
   }, [metas, aportes]);
@@ -524,6 +614,32 @@ export default function MetasPage() {
       metaMaisProxima,
     };
   }, [aportes, metasCalculadas]);
+
+  const inteligenciaMetas = useMemo(() => {
+  const metasAtivas = metasCalculadas.filter((m) => m.status === "ativa" && m.faltante > 0);
+
+  if (metasAtivas.length === 0) return null;
+
+  const maisProxima = [...metasAtivas].sort((a, b) => a.faltante - b.faltante)[0];
+
+  const maisAtrasada = [...metasAtivas].sort((a, b) => a.percentual - b.percentual)[0];
+
+  const maisUrgente = [...metasAtivas].sort((a, b) => {
+    return (b.faltante / b.valorMetaNumero) - (a.faltante / a.valorMetaNumero);
+  })[0];
+
+  const valorSugerido = Math.min(
+    Number(maisUrgente.faltante || 0),
+    Math.max(50, Number((Number(maisUrgente.faltante || 0) * 0.1).toFixed(2)))
+  );
+
+  return {
+    maisProxima,
+    maisAtrasada,
+    maisUrgente,
+    valorSugerido,
+  };
+}, [metasCalculadas]);
 
   function abrirNovaMeta() {
     setMetaEmEdicao(null);
@@ -767,6 +883,106 @@ export default function MetasPage() {
     }
   }
 
+async function confirmarAporteInteligente() {
+  if (!userId) {
+    setErro("Você precisa estar logado para registrar um aporte.");
+    return;
+  }
+
+  if (!metaInteligenteSelecionadaId) {
+    setErro("Selecione uma meta para continuar.");
+    return;
+  }
+
+  const meta = metasCalculadas.find((item) => item.id === metaInteligenteSelecionadaId);
+
+  if (!meta) {
+    setErro("Meta não encontrada.");
+    return;
+  }
+
+  const valorNumerico = Number(valorAporteInteligente || 0);
+
+  if (valorNumerico <= 0) {
+    setErro("Informe um valor válido para o aporte.");
+    return;
+  }
+
+  try {
+    setSavingAporteInteligente(true);
+    setErro(null);
+
+    const dataLancamento = getHoje();
+
+    const { data: aporteCriado, error: aporteError } = await supabase
+      .from("meta_aportes")
+      .insert({
+        user_id: userId,
+        meta_id: meta.id,
+        tipo: "aporte",
+        valor: valorNumerico,
+        descricao: `Aporte inteligente - ${meta.nome}`,
+        data: dataLancamento,
+      })
+      .select()
+      .single();
+
+    if (aporteError) throw aporteError;
+
+    const { error: movimentacaoError } = await supabase
+      .from("movimentacoes")
+      .insert({
+        tipo: "despesa",
+        descricao: `Aporte inteligente - ${meta.nome}`,
+        categoria: "aporte_meta",
+        valor: valorNumerico,
+        data: dataLancamento,
+        tipo_pagamento: "pix_dinheiro",
+        cartao_id: null,
+        parcelas: null,
+        primeira_cobranca: null,
+        meta_id: meta.id,
+        meta_aporte_id: aporteCriado.id,
+      });
+
+    if (movimentacaoError) {
+      await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
+      throw movimentacaoError;
+    }
+
+    setAporteInteligenteModalOpen(false);
+    setMetaInteligenteSelecionadaId("");
+    setValorAporteInteligente("");
+
+    await carregarDados();
+  } catch (e) {
+    console.error(e);
+    setErro("Não foi possível executar o aporte inteligente.");
+  } finally {
+    setSavingAporteInteligente(false);
+  }
+}
+
+function abrirModalAporteInteligente() {
+  if (!inteligenciaMetas?.maisUrgente) {
+    setErro("Nenhuma meta disponível para aporte inteligente.");
+    return;
+  }
+
+  setErro(null);
+  setMetaInteligenteSelecionadaId(inteligenciaMetas.maisUrgente.id);
+  setValorAporteInteligente(String(inteligenciaMetas.valorSugerido));
+  setAporteInteligenteModalOpen(true);
+}
+
+  const metaInteligenteSelecionada = useMemo(() => {
+  if (!metaInteligenteSelecionadaId) return null;
+
+  return metasCalculadas.find(
+    (item) => item.id === metaInteligenteSelecionadaId
+  ) ?? null;
+}, [metaInteligenteSelecionadaId, metasCalculadas]);
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -805,6 +1021,7 @@ export default function MetasPage() {
       </div>
     );
   }
+
 
   if (!userId) {
     return (
@@ -899,6 +1116,82 @@ export default function MetasPage() {
   tone="orange"
 />
       </section>
+
+{inteligenciaMetas && (
+  <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="mb-4">
+      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+        Inteligência
+      </p>
+      <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">
+        Prioridade entre metas
+      </h2>
+      <p className="mt-2 text-sm leading-relaxed text-slate-500">
+        O app destaca automaticamente qual meta merece mais atenção agora.
+      </p>
+    </div>
+
+    <div className="grid gap-4 md:grid-cols-3">
+
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-rose-600">
+          Mais urgente
+        </p>
+        <p className="mt-2 text-base font-semibold text-slate-900">
+          {inteligenciaMetas.maisUrgente.nome}
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
+          Falta {formatarMoeda(inteligenciaMetas.maisUrgente.faltante)}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-emerald-600">
+          Mais próxima
+        </p>
+        <p className="mt-2 text-base font-semibold text-slate-900">
+          {inteligenciaMetas.maisProxima.nome}
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
+          Falta {formatarMoeda(inteligenciaMetas.maisProxima.faltante)}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-amber-600">
+          Mais atrasada
+        </p>
+        <p className="mt-2 text-base font-semibold text-slate-900">
+          {inteligenciaMetas.maisAtrasada.nome}
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
+          {inteligenciaMetas.maisAtrasada.percentual.toFixed(0)}% concluída
+        </p>
+      </div>
+
+        </div>
+
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+      <div>
+        <p className="text-sm font-medium text-slate-900">
+          Sugestão de aporte agora
+        </p>
+        <p className="text-sm text-slate-500">
+          {inteligenciaMetas.maisUrgente.nome} • {formatarMoeda(inteligenciaMetas.valorSugerido)}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={abrirModalAporteInteligente}
+        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-medium text-white transition hover:bg-slate-800"
+      >
+        <Plus className="h-4 w-4" />
+        Aportar agora
+      </button>
+    </div>
+  </section>
+)}
 
       <section className="rounded-4x1border border-slate-200 bg-white shadow-sm">
         <div className="grid gap-4 border-b border-slate-200 px-6 py-5 xl:grid-cols-[1.3fr_220px_220px]">
@@ -1095,6 +1388,46 @@ export default function MetasPage() {
                             className="h-full rounded-full bg-slate-900 transition-all"
                             style={{ width: `${meta.percentual}%` }}
                           />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                            Ritmo atual
+                          </p>
+                          <p className="mt-2 text-base font-semibold text-slate-900">
+                            {formatarMoeda(meta.mediaMensalAportes)}/mês
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Média com base no histórico de aportes
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                            Previsão
+                          </p>
+                          <p className="mt-2 text-base font-semibold text-slate-900">
+                            {meta.previsaoConclusaoTexto}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Estimativa com base no seu ritmo atual
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                            Ideal por mês
+                          </p>
+                          <p className="mt-2 text-base font-semibold text-slate-900">
+                            {meta.valorIdealMensal !== null
+                              ? `${formatarMoeda(meta.valorIdealMensal)}/mês`
+                              : "Sem prazo"}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Para cumprir a meta até o prazo
+                          </p>
                         </div>
                       </div>
 
@@ -1487,9 +1820,13 @@ export default function MetasPage() {
 
                   return (
                     <div
-                      key={item.id}
-                      className="rounded-3x1 border border-slate-200 bg-white px-5 py-4 shadow-sm"
-                    >
+  key={item.id}
+  onClick={() => {
+    setAporteEditando(item);
+    setValorEditando(String(item.valor));
+  }}
+  className="rounded-3x1 border border-slate-200 bg-white px-5 py-4 shadow-sm cursor-pointer hover:bg-slate-50"
+>
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
@@ -1564,6 +1901,150 @@ export default function MetasPage() {
           </div>
         </ModalShell>
       ) : null}
+      {aporteEditando && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+
+    <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4">
+
+      <h2 className="text-lg font-semibold">Editar aporte</h2>
+
+      <input
+        value={valorEditando}
+        onChange={(e) => setValorEditando(e.target.value)}
+        className="w-full border rounded-xl p-3"
+      />
+
+      <div className="flex gap-2">
+
+        <button
+          onClick={async () => {
+            await supabase
+              .from("meta_aportes")
+              .update({ valor: Number(valorEditando) })
+              .eq("id", aporteEditando.id);
+
+            setAporteEditando(null);
+            carregarDados();
+          }}
+          className="flex-1 bg-black text-white rounded-xl p-3"
+        >
+          Salvar
+        </button>
+
+        <button
+          onClick={async () => {
+            await supabase
+              .from("meta_aportes")
+              .delete()
+              .eq("id", aporteEditando.id);
+
+            setAporteEditando(null);
+            carregarDados();
+          }}
+          className="flex-1 border rounded-xl p-3"
+        >
+          Excluir
+        </button>
+
+      </div>
+    </div>
+  </div>
+)}
+{aporteInteligenteModalOpen && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+
+    <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4">
+
+      <h2 className="text-lg font-semibold">Aporte inteligente</h2>
+
+      <select
+        value={metaInteligenteSelecionadaId}
+        onChange={(e) => setMetaInteligenteSelecionadaId(e.target.value)}
+        className="w-full border rounded-xl p-3"
+      >
+        {metasCalculadas
+          .filter((m) => m.status === "ativa" && m.faltante > 0)
+          .map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.nome}
+            </option>
+          ))}
+      </select>
+
+      <input
+        type="number"
+        value={valorAporteInteligente}
+        onChange={(e) => setValorAporteInteligente(e.target.value)}
+        className="w-full border rounded-xl p-3"
+      />
+
+      {metaInteligenteSelecionada && (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+              Guardado
+            </p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">
+              {formatarMoeda(metaInteligenteSelecionada.valorAtualCalculado)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+              Falta
+            </p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">
+              {formatarMoeda(metaInteligenteSelecionada.faltante)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+              Progresso
+            </p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">
+              {metaInteligenteSelecionada.percentual.toFixed(0)}%
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+              Ideal por mês
+            </p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">
+              {metaInteligenteSelecionada.valorIdealMensal !== null
+                ? formatarMoeda(metaInteligenteSelecionada.valorIdealMensal)
+                : "Sem prazo"}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+
+        <button
+          onClick={() => {
+            setAporteInteligenteModalOpen(false);
+            setMetaInteligenteSelecionadaId("");
+            setValorAporteInteligente("");
+          }}
+          className="flex-1 border rounded-xl p-3"
+        >
+          Cancelar
+        </button>
+
+        <button
+          onClick={confirmarAporteInteligente}
+            disabled={savingAporteInteligente}
+            className="flex-1 bg-black text-white rounded-xl p-3 disabled:opacity-50"
+        >
+          Confirmar
+        </button>
+
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }

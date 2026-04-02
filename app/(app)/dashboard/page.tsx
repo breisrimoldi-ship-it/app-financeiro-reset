@@ -10,6 +10,7 @@ import {
   Calendar,
   CalendarDays,
   CreditCard,
+  ExternalLink,
   Plus,
   Search,
   Tag,
@@ -60,6 +61,37 @@ type Cartao = {
   limite: number | string | null;
 };
 
+type ContaFixaDashboard = {
+  id: number;
+  descricao: string;
+  valor: number | string | null;
+  dia_vencimento: number | null;
+  categoria: string | null;
+  observacoes: string | null;
+  ativa: boolean;
+  user_id: string | null;
+  tipo_recorrencia: "indeterminada" | "temporaria";
+  inicio_cobranca: string | null;
+  fim_cobranca: string | null;
+  quantidade_meses: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type PagamentoContaDashboard = {
+  id: number;
+  origem_tipo: string | null;
+  origem_id: number | null;
+  mes_referencia: string | null;
+  valor_pago: number | string | null;
+  data_pagamento: string | null;
+  status: string | null;
+  observacoes: string | null;
+  user_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type ResumoCartao = {
   id: number;
   nome: string;
@@ -89,22 +121,43 @@ type MetasSnapshot = {
   totalGuardado: number;
   quantidadeAtivas: number;
   metaMaisProxima: MetaResumo | null;
+  metasOrdenadas: MetaResumo[];
+};
+
+type MetaPlanoRadar = {
+  id: string;
+  nome: string;
+  prazo: string | null;
+  faltante: number;
+  valorPorDia: number;
+  valorSugeridoHoje: number;
+  percentual: number;
+  prioridade: number;
 };
 
 type MonthSnapshot = {
+  saldoInicial: number;
   entradas: number;
   saidasPagas: number;
+  comprometidoMes: number;
+  comprometidoAtrasado: number;
   comprometido: number;
   saldoDisponivel: number;
   adiantadas: number;
   cartoesResumo: ResumoCartao[];
 };
 
-type CardAtivo = "entradas" | "saidas" | "comprometido" | "adiantadas" | null;
+type CardAtivo =
+  | "entradas"
+  | "saidas"
+  | "comprometido"
+  | "adiantadas"
+  | "contas"
+  | null;
 
 type ModalLancamentoItem = {
   id: string;
-  tipo: "entrada" | "despesa" | "fatura" | "adiantada";
+  tipo: "entrada" | "despesa" | "fatura" | "adiantada" | "conta";
   titulo: string;
   categoria: string;
   valor: number;
@@ -304,401 +357,171 @@ function calcularPrimeiraCobranca(
   return `${anoCobranca}-${String(mesCobranca).padStart(2, "0")}`;
 }
 
-function calcularSnapshotDoMes(
-  mesSelecionado: string,
-  movimentacoes: Movimentacao[],
-  faturasPagamento: FaturaPagamento[],
-  cartoes: Cartao[]
-): MonthSnapshot {
-  const [ano, mes] = mesSelecionado.split("-").map(Number);
-  const inicioMes = `${mesSelecionado}-01`;
-  const proximoMes =
-    mes === 12
-      ? `${ano + 1}-01-01`
-      : `${ano}-${String(mes + 1).padStart(2, "0")}-01`;
+function getUltimoMesConta(conta: ContaFixaDashboard) {
+  if (!conta.inicio_cobranca) return null;
 
-  const movimentacoesMes = movimentacoes.filter((item) => {
-    const data = item.data ?? "";
-    return data >= inicioMes && data < proximoMes;
-  });
+  if (conta.tipo_recorrencia === "indeterminada") {
+    return null;
+  }
 
-  const entradas = movimentacoesMes.filter(
-    (item) => (item.tipo ?? "").toLowerCase() === "entrada"
-  );
+  if (conta.fim_cobranca) {
+    return conta.fim_cobranca;
+  }
 
-  const despesasAvista = movimentacoesMes.filter(
-    (item) =>
-      (item.tipo ?? "").toLowerCase() === "despesa" &&
-      (item.tipo_pagamento ?? "").toLowerCase() !== "credito"
-  );
+  if (conta.quantidade_meses && conta.quantidade_meses > 0) {
+    return adicionarMeses(conta.inicio_cobranca, conta.quantidade_meses - 1);
+  }
 
-  const totalEntradas = entradas.reduce(
-    (acc, item) => acc + normalizarNumero(item.valor),
-    0
-  );
+  return null;
+}
 
-  const totalDespesasAvista = despesasAvista.reduce(
-    (acc, item) => acc + normalizarNumero(item.valor),
-    0
-  );
+function contaExisteNoMes(conta: ContaFixaDashboard, mesReferencia: string) {
+  if (!conta.inicio_cobranca) return false;
 
-  const movimentacoesCredito = movimentacoes.filter(
-    (item) =>
-      (item.tipo ?? "").toLowerCase() === "despesa" &&
-      (item.tipo_pagamento ?? "").toLowerCase() === "credito" &&
-      !!item.cartao_id
-  );
+  if (conta.inicio_cobranca > mesReferencia) {
+    return false;
+  }
 
-  const faturasProjetadas = new Map<string, number>();
+  if (conta.tipo_recorrencia === "indeterminada") {
+    return true;
+  }
 
-  for (const mov of movimentacoesCredito) {
-    const cartaoId = Number(mov.cartao_id);
-    const valorTotal = normalizarNumero(mov.valor);
-    const parcelas = Number(mov.parcelas || 1);
+  const ultimoMes = getUltimoMesConta(conta);
+  if (!ultimoMes) return false;
 
-    let primeiraCompetencia = mov.primeira_cobranca;
-    if (!primeiraCompetencia && mov.data) {
-      primeiraCompetencia = mov.data.slice(0, 7);
-    }
+  return mesReferencia >= conta.inicio_cobranca && mesReferencia <= ultimoMes;
+}
 
-    if (!primeiraCompetencia) continue;
+function contaEstaPendenteAteMes(
+  conta: ContaFixaDashboard,
+  mesReferencia: string,
+  pagamentosContas: PagamentoContaDashboard[]
+) {
+  if (conta.ativa === false) return false;
+  if (!conta.inicio_cobranca) return false;
+  if (conta.inicio_cobranca > mesReferencia) return false;
 
-    const valorParcela = valorTotal / parcelas;
-
-    for (let i = 0; i < parcelas; i++) {
-      const competencia = adicionarMeses(primeiraCompetencia, i);
-
-      if (competencia <= mesSelecionado) {
-        const chave = `${cartaoId}|${competencia}`;
-        const atual = faturasProjetadas.get(chave) || 0;
-        faturasProjetadas.set(chave, atual + valorParcela);
-      }
+  if (conta.tipo_recorrencia === "temporaria") {
+    const ultimoMes = getUltimoMesConta(conta);
+    if (ultimoMes && ultimoMes < mesReferencia) {
+      // ainda pode estar pendente se algum mês anterior não foi pago
     }
   }
 
-  let totalFaturasPagasNoMes = 0;
-  let totalFaturasEmAberto = 0;
-  let totalAdiantadasNoMes = 0;
+const competencias: string[] = [];
 
-  const resumoPorCartao = new Map<number, ResumoCartao>();
+  if (conta.tipo_recorrencia === "indeterminada") {
+    let atual = conta.inicio_cobranca;
+    while (atual <= mesReferencia) {
+      competencias.push(atual);
+      atual = adicionarMeses(atual, 1);
+    }
+  } else {
+    const ultimoMes = getUltimoMesConta(conta);
+    if (!ultimoMes) return false;
 
-  for (const cartao of cartoes) {
-    resumoPorCartao.set(cartao.id, {
-      id: cartao.id,
-      nome: cartao.nome,
-      limite: normalizarNumero(cartao.limite),
-      emAberto: 0,
-    });
+    let atual = conta.inicio_cobranca;
+    while (atual <= mesReferencia && atual <= ultimoMes) {
+      competencias.push(atual);
+      atual = adicionarMeses(atual, 1);
+    }
   }
 
-  for (const [chave, valorFatura] of faturasProjetadas.entries()) {
-    const [cartaoIdStr, competencia] = chave.split("|");
-    const cartaoId = Number(cartaoIdStr);
-
-    const pagamento = faturasPagamento.find(
+  return competencias.some((competencia) => {
+    const pagamento = pagamentosContas.find(
       (item) =>
-        item.cartao_id === cartaoId &&
+        Number(item.origem_id) === conta.id &&
         item.mes_referencia === competencia &&
         (item.status ?? "").toLowerCase() === "paga"
     );
 
-    if (!pagamento) {
-      totalFaturasEmAberto += valorFatura;
-      const resumo = resumoPorCartao.get(cartaoId);
-      if (resumo) resumo.emAberto += valorFatura;
-      continue;
-    }
-
-    const mesPagamento = pagamento.data_pagamento?.slice(0, 7);
-
-    if (mesPagamento === mesSelecionado) {
-      const valorPago = normalizarNumero(pagamento.valor_pago || valorFatura);
-      totalFaturasPagasNoMes += valorPago;
-
-      if (competencia > mesSelecionado) {
-        totalAdiantadasNoMes += valorPago;
-      }
-    } else {
-      const resumo = resumoPorCartao.get(cartaoId);
-      if (resumo && competencia <= mesSelecionado) {
-        resumo.emAberto += valorFatura;
-      }
-    }
-  }
-
-  const totalSaidasPagas = totalDespesasAvista + totalFaturasPagasNoMes;
-  const totalComprometido = totalFaturasEmAberto;
-  const totalSaldoDisponivel = totalEntradas - totalSaidasPagas;
-
-  return {
-    entradas: totalEntradas,
-    saidasPagas: totalSaidasPagas,
-    comprometido: totalComprometido,
-    saldoDisponivel: totalSaldoDisponivel,
-    adiantadas: totalAdiantadasNoMes,
-    cartoesResumo: Array.from(resumoPorCartao.values()),
-  };
+    return !pagamento;
+  });
 }
 
-function formatarPrazoCurto(data: string | null) {
-  if (!data) return "Sem prazo";
-  if (/^\d{4}-\d{2}$/.test(data)) return formatarCompetencia(data);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(data)) return formatarData(data);
-  return data;
-}
-
-function gerarInsights({
-  entradas,
-  saidas,
-  comprometido,
-  saldo,
-  metas,
-}: {
-  entradas: number;
-  saidas: number;
-  comprometido: number;
-  saldo: number;
-  metas: MetasSnapshot;
-}) {
-  const insights: {
-    tipo: "alerta" | "positivo" | "neutro";
-    texto: string;
-  }[] = [];
-
-  const usoTotal = saidas + comprometido;
-
-  if (usoTotal > entradas) {
-    insights.push({
-      tipo: "alerta",
-      texto: `Você já comprometeu mais do que ganhou este mês.`,
-    });
-  }
-
-  if (saldo > 0 && metas.metaMaisProxima) {
-    insights.push({
-      tipo: "positivo",
-      texto: `Você pode aportar até ${formatarMoeda(saldo)} na meta "${metas.metaMaisProxima.nome}".`,
-    });
-  }
-
-  if (saidas === 0 && comprometido > 0) {
-    insights.push({
-      tipo: "neutro",
-      texto: `Você ainda não teve saídas reais, mas já possui valores comprometidos.`,
-    });
-  }
-
-  if (insights.length === 0) {
-    insights.push({
-      tipo: "neutro",
-      texto: `Seu mês está equilibrado até agora.`,
-    });
-  }
-
-  return insights;
-}
-
-function gerarPrevisao({
-  entradas,
-  saidas,
-  comprometido,
-}: {
-  entradas: number;
-  saidas: number;
-  comprometido: number;
-}) {
-  const hoje = new Date();
-  const diaAtual = hoje.getDate();
-
-  const ultimoDiaMes = new Date(
-    hoje.getFullYear(),
-    hoje.getMonth() + 1,
-    0
-  ).getDate();
-
-  const diasRestantes = ultimoDiaMes - diaAtual;
-  const gastoDiarioAtual = diaAtual > 0 ? saidas / diaAtual : 0;
-  const previsaoGasto = gastoDiarioAtual * ultimoDiaMes;
-  const saldoFinalPrevisto = entradas - previsaoGasto - comprometido;
-
-  const gastoDiarioPermitido =
-    diasRestantes > 0
-      ? (entradas - saidas - comprometido) / diasRestantes
-      : 0;
-
-  return {
-    saldoFinalPrevisto,
-    gastoDiarioAtual,
-    gastoDiarioPermitido,
-    diasRestantes,
-  };
-}
-
-function calcularValorAtualMetaDashboard(
-  meta: Record<string, unknown>,
-  aportes: Record<string, unknown>[]
+function getDataVencimentoConta(
+  conta: ContaFixaDashboard,
+  mesReferencia: string
 ) {
-  const valorInicial = getNumeroCampo(meta, ["valor_inicial"], 0);
-  const valorAtualBase = getNumeroCampo(
-    meta,
-    ["valor_atual", "valor_guardado", "guardado", "saved_amount", "valor"],
-    0
+  const dia = Math.min(Math.max(Number(conta.dia_vencimento || 1), 1), 31);
+  return `${mesReferencia}-${String(dia).padStart(2, "0")}`;
+}
+
+function getStatusContaDashboard(
+  conta: ContaFixaDashboard,
+  mesReferencia: string,
+  pagamentosContas: PagamentoContaDashboard[]
+) {
+  const pagamento = pagamentosContas.find(
+    (item) =>
+      Number(item.origem_id) === conta.id &&
+      item.mes_referencia === mesReferencia &&
+      (item.status ?? "").toLowerCase() === "paga"
   );
 
-  const base = valorAtualBase > 0 ? valorAtualBase : valorInicial;
+  if (pagamento) {
+    return {
+      status: "paga" as const,
+      dataVencimento: getDataVencimentoConta(conta, mesReferencia),
+      pagamento,
+    };
+  }
 
-  const totalHistorico = aportes.reduce((acc, item) => {
-    const valor = getNumeroCampo(item, ["valor"], 0);
-    const tipo = getStringCampo(item, ["tipo"], "").toLowerCase();
+  const hoje = getHoje();
+  const mesAtual = hoje.slice(0, 7);
+  const dataVencimento = getDataVencimentoConta(conta, mesReferencia);
 
-    if (tipo === "aporte") return acc + valor;
-    if (tipo === "retirada") return acc - valor;
-    if (tipo === "ajuste") return acc + valor;
+  if (mesReferencia < mesAtual) {
+    return {
+      status: "vencida" as const,
+      dataVencimento,
+      pagamento: null,
+    };
+  }
 
-    return acc;
-  }, 0);
+  if (mesReferencia > mesAtual) {
+    return {
+      status: "futura" as const,
+      dataVencimento,
+      pagamento: null,
+    };
+  }
 
-  return base + totalHistorico;
-}
+  if (dataVencimento < hoje) {
+    return {
+      status: "vencida" as const,
+      dataVencimento,
+      pagamento: null,
+    };
+  }
 
-function calcularMetasSnapshotComAportes(
-  metasRaw: Record<string, unknown>[],
-  aportesRaw: Record<string, unknown>[]
-): MetasSnapshot {
-  const metas = metasRaw
-    .filter((meta) => {
-      const status = getStringCampo(meta, ["status"], "ativa").toLowerCase();
-      const considerar =
-        typeof meta.considerar_na_dashboard === "boolean"
-          ? meta.considerar_na_dashboard
-          : true;
+  if (dataVencimento === hoje) {
+    return {
+      status: "vence_hoje" as const,
+      dataVencimento,
+      pagamento: null,
+    };
+  }
 
-      return status === "ativa" && considerar;
-    })
-    .map((meta, index) => {
-      const metaId = getStringCampo(meta, ["id"], "");
-      const aportesDaMeta = aportesRaw.filter(
-        (item) => getStringCampo(item, ["meta_id"], "") === metaId
-      );
+  const diffDias = Math.ceil(
+    (new Date(`${dataVencimento}T00:00:00`).getTime() -
+      new Date(`${hoje}T00:00:00`).getTime()) /
+      (1000 * 60 * 60 * 24)
+  );
 
-      const nome =
-        getStringCampo(meta, ["nome", "titulo", "descricao"], `Meta ${index + 1}`) ||
-        `Meta ${index + 1}`;
-
-      const valorMeta = Math.max(
-        getNumeroCampo(meta, [
-          "valor_meta",
-          "valor_alvo",
-          "meta",
-          "objetivo",
-          "target_amount",
-        ]),
-        0
-      );
-
-      const valorAtual = Math.max(
-        calcularValorAtualMetaDashboard(meta, aportesDaMeta),
-        0
-      );
-
-      const prazo =
-        getStringCampo(meta, ["prazo", "data_limite", "deadline"], "") || null;
-
-      const faltante = Math.max(valorMeta - valorAtual, 0);
-      const percentual =
-        valorMeta > 0 ? Math.min((valorAtual / valorMeta) * 100, 100) : 0;
-
-      return {
-        id: metaId,
-        nome,
-        valorMeta,
-        valorAtual,
-        faltante,
-        percentual,
-        prazo,
-      };
-    })
-    .filter((meta) => meta.valorMeta > 0 || meta.valorAtual > 0);
-
-  const totalGuardado = metas.reduce((acc, meta) => acc + meta.valorAtual, 0);
-
-  const metasOrdenadas = [...metas]
-    .filter((meta) => meta.faltante > 0)
-    .sort((a, b) => {
-      const aTemPrazo = Boolean(a.prazo);
-      const bTemPrazo = Boolean(b.prazo);
-
-      if (aTemPrazo && !bTemPrazo) return -1;
-      if (!aTemPrazo && bTemPrazo) return 1;
-
-      if (a.prazo && b.prazo && a.prazo !== b.prazo) {
-        return a.prazo.localeCompare(b.prazo);
-      }
-
-      return a.faltante - b.faltante;
-    });
+  if (diffDias >= 1 && diffDias <= 3) {
+    return {
+      status: "vence_breve" as const,
+      dataVencimento,
+      pagamento: null,
+    };
+  }
 
   return {
-    totalGuardado,
-    quantidadeAtivas: metas.length,
-    metaMaisProxima: metasOrdenadas[0] ?? null,
+    status: "aberta" as const,
+    dataVencimento,
+    pagamento: null,
   };
-}
-
-function gerarRecomendacoes({
-  saldo,
-  previsao,
-  metas,
-}: {
-  saldo: number;
-  previsao: ReturnType<typeof gerarPrevisao>;
-  metas: MetasSnapshot;
-}): RecomendacaoItem[] {
-  const recomendacoes: RecomendacaoItem[] = [];
-
-  if (previsao.saldoFinalPrevisto < 0) {
-    const deficit = Math.abs(previsao.saldoFinalPrevisto);
-
-    recomendacoes.push({
-      tipo: "alerta",
-      texto: `Você precisa reduzir cerca de ${formatarMoeda(
-        deficit / (previsao.diasRestantes || 1)
-      )} por dia para não fechar o mês negativo.`,
-    });
-  }
-
-  if (saldo > 0 && metas.metaMaisProxima?.id) {
-    const valorSugerido = Number((saldo * 0.5).toFixed(2));
-
-    recomendacoes.push({
-      tipo: "acao",
-      texto: `Você pode guardar ${formatarMoeda(
-        valorSugerido
-      )} hoje na meta "${metas.metaMaisProxima.nome}".`,
-      acao: {
-        tipo: "guardar_meta",
-        valor: valorSugerido,
-        metaId: metas.metaMaisProxima.id,
-        metaNome: metas.metaMaisProxima.nome,
-      },
-    });
-  }
-
-  if (saldo > 0 && previsao.saldoFinalPrevisto > 0) {
-    recomendacoes.push({
-      tipo: "acao",
-      texto: `Você está em um bom ritmo. Continue mantendo seus gastos controlados.`,
-    });
-  }
-
-  if (recomendacoes.length === 0) {
-    recomendacoes.push({
-      tipo: "acao",
-      texto: `Sem ações necessárias agora.`,
-    });
-  }
-
-  return recomendacoes;
 }
 
 function CardResumo({
@@ -769,6 +592,7 @@ function CardResumo({
     </button>
   );
 }
+
 function MiniBarChart({ data }: { data: ChartPoint[] }) {
   const maxValor = Math.max(
     1,
@@ -892,7 +716,7 @@ function PrevisaoCard({
   );
 }
 
-function RecomendacoesCard({
+function RecomendacoesCard({ 
   recomendacoes,
   onExecutar,
 }: {
@@ -918,14 +742,15 @@ function RecomendacoesCard({
               <span>{item.texto}</span>
 
               {item.acao && (
-                <button
-                  type="button"
-                  onClick={() => onExecutar(item.acao!)}
-                  className="shrink-0 rounded-xl bg-black px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
-                >
-                  Guardar agora
-                </button>
-              )}
+  <button
+    type="button"
+    onClick={() => onExecutar(item.acao!)}
+    className="shrink-0 rounded-xl bg-black px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+  >
+    Guardar agora
+  </button>
+)}
+           
             </div>
           </div>
         ))}
@@ -934,10 +759,103 @@ function RecomendacoesCard({
   );
 }
 
+function gerarSugestoesReceita({
+  saldoProjetado,
+  alertasContas,
+  metas,
+}: {
+  saldoProjetado: number;
+  alertasContas: {
+    vencidas: Array<{ conta: ContaFixaDashboard }>;
+    vencemHoje: Array<{ conta: ContaFixaDashboard }>;
+    vencemBreve: Array<{ conta: ContaFixaDashboard }>;
+    total: number;
+  };
+  metas: MetasSnapshot;
+}) {
+  const hoje = new Date();
+  const ultimoDiaMes = new Date(
+    hoje.getFullYear(),
+    hoje.getMonth() + 1,
+    0
+  ).getDate();
+
+  const diaAtual = hoje.getDate();
+  const diasRestantes = Math.max(ultimoDiaMes - diaAtual + 1, 1);
+
+  const totalVencidas = alertasContas.vencidas.reduce(
+    (acc, item) => acc + normalizarNumero(item.conta.valor),
+    0
+  );
+
+  const totalHoje = alertasContas.vencemHoje.reduce(
+    (acc, item) => acc + normalizarNumero(item.conta.valor),
+    0
+  );
+
+  const totalBreve = alertasContas.vencemBreve.reduce(
+    (acc, item) => acc + normalizarNumero(item.conta.valor),
+    0
+  );
+
+  const sugestoes: string[] = [];
+
+  if (totalVencidas > 0) {
+    sugestoes.push(
+      `Hoje você precisa gerar ${formatarMoeda(
+        totalVencidas
+      )} para cobrir suas contas vencidas.`
+    );
+  }
+
+  if (totalHoje > 0) {
+    sugestoes.push(
+      `Priorize pelo menos ${formatarMoeda(
+        totalHoje
+      )} hoje para não virar nova pendência.`
+    );
+  }
+
+  if (saldoProjetado < 0) {
+    const necessarioPorDia = Math.abs(saldoProjetado) / diasRestantes;
+
+    sugestoes.push(
+      `Se fizer ${formatarMoeda(
+        necessarioPorDia
+      )} por dia nos próximos ${diasRestantes} dia(s), você evita fechar o mês no negativo.`
+    );
+  }
+
+  if (totalBreve > 0) {
+    sugestoes.push(
+      `Você tem ${formatarMoeda(
+        totalBreve
+      )} vencendo em breve. Antecipar receita agora reduz pressão nos próximos dias.`
+    );
+  }
+
+  if (saldoProjetado > 0 && metas.metaMaisProxima) {
+    const valorMeta = Math.min(saldoProjetado, metas.metaMaisProxima.faltante);
+
+    sugestoes.push(
+      `Depois de cobrir o urgente, você pode direcionar até ${formatarMoeda(
+        valorMeta
+      )} para a meta "${metas.metaMaisProxima.nome}".`
+    );
+  }
+
+  if (sugestoes.length === 0) {
+    sugestoes.push("Hoje sua operação está estável. Mantenha o ritmo de receita.");
+  }
+
+  return sugestoes;
+}
+
 function ItemModalDashboard({ item }: { item: ModalLancamentoItem }) {
   const isEntrada = item.tipo === "entrada";
   const isFatura = item.tipo === "fatura";
   const isAdiantada = item.tipo === "adiantada";
+  const isConta = item.tipo === "conta";
 
   return (
     <div className="w-full rounded-[28px] border border-slate-200/80 bg-white px-5 py-5 text-left shadow-sm md:px-6">
@@ -950,6 +868,8 @@ function ItemModalDashboard({ item }: { item: ModalLancamentoItem }) {
               ? "bg-blue-50 text-blue-600 ring-blue-100"
               : isFatura
               ? "bg-orange-50 text-orange-600 ring-orange-100"
+              : isConta
+              ? "bg-violet-50 text-violet-600 ring-violet-100"
               : "bg-rose-50 text-rose-600 ring-rose-100"
           }`}
         >
@@ -959,6 +879,8 @@ function ItemModalDashboard({ item }: { item: ModalLancamentoItem }) {
             <TrendingUp className="h-5 w-5" />
           ) : isFatura ? (
             <CreditCard className="h-5 w-5" />
+          ) : isConta ? (
+            <Calendar className="h-5 w-5" />
           ) : (
             <ArrowDownLeft className="h-5 w-5" />
           )}
@@ -990,7 +912,7 @@ function ItemModalDashboard({ item }: { item: ModalLancamentoItem }) {
 
                 {item.competencia ? (
                   <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
-                    Fatura {formatarCompetencia(item.competencia)}
+                    {item.competencia}
                   </span>
                 ) : null}
               </div>
@@ -1014,6 +936,8 @@ function ItemModalDashboard({ item }: { item: ModalLancamentoItem }) {
                     ? "text-blue-600"
                     : isFatura
                     ? "text-orange-600"
+                    : isConta
+                    ? "text-violet-600"
                     : "text-rose-600"
                 }`}
               >
@@ -1122,6 +1046,590 @@ function ModalResumoDashboard({
   );
 }
 
+function calcularSaldoInicialMes(
+  mesSelecionado: string,
+  movimentacoes: Movimentacao[],
+  faturasPagamento: FaturaPagamento[],
+  cartoes: Cartao[],
+  contas: ContaFixaDashboard[],
+  pagamentosContas: PagamentoContaDashboard[]
+) {
+  const mesAnterior = adicionarMeses(mesSelecionado, -1);
+
+  const snapMesAnterior = calcularSnapshotDoMesBase(
+    mesAnterior,
+    movimentacoes,
+    faturasPagamento,
+    cartoes,
+    contas,
+    pagamentosContas
+  );
+
+  return snapMesAnterior.entradas - snapMesAnterior.saidasPagas;
+}
+
+function calcularSnapshotDoMesBase(
+  mesSelecionado: string,
+  movimentacoes: Movimentacao[],
+  faturasPagamento: FaturaPagamento[],
+  cartoes: Cartao[],
+  contas: ContaFixaDashboard[],
+  pagamentosContas: PagamentoContaDashboard[]
+): MonthSnapshot {
+  const [ano, mes] = mesSelecionado.split("-").map(Number);
+  const inicioMes = `${mesSelecionado}-01`;
+  const proximoMes =
+    mes === 12
+      ? `${ano + 1}-01-01`
+      : `${ano}-${String(mes + 1).padStart(2, "0")}-01`;
+
+  const movimentacoesMes = movimentacoes.filter((item) => {
+    const data = item.data ?? "";
+    return data >= inicioMes && data < proximoMes;
+  });
+
+  const entradas = movimentacoesMes.filter(
+    (item) => (item.tipo ?? "").toLowerCase() === "entrada"
+  );
+
+  const despesasAvista = movimentacoesMes.filter(
+    (item) =>
+      (item.tipo ?? "").toLowerCase() === "despesa" &&
+      (item.tipo_pagamento ?? "").toLowerCase() !== "credito"
+  );
+
+  const totalEntradas = entradas.reduce(
+    (acc, item) => acc + normalizarNumero(item.valor),
+    0
+  );
+
+  const totalDespesasAvista = despesasAvista.reduce(
+    (acc, item) => acc + normalizarNumero(item.valor),
+    0
+  );
+
+  const movimentacoesCredito = movimentacoes.filter(
+    (item) =>
+      (item.tipo ?? "").toLowerCase() === "despesa" &&
+      (item.tipo_pagamento ?? "").toLowerCase() === "credito" &&
+      !!item.cartao_id
+  );
+
+  const faturasProjetadas = new Map<string, number>();
+
+  for (const mov of movimentacoesCredito) {
+    const cartaoId = Number(mov.cartao_id);
+    const valorTotal = normalizarNumero(mov.valor);
+    const parcelas = Number(mov.parcelas || 1);
+
+    let primeiraCompetencia = mov.primeira_cobranca;
+    if (!primeiraCompetencia && mov.data) {
+      primeiraCompetencia = mov.data.slice(0, 7);
+    }
+
+    if (!primeiraCompetencia) continue;
+
+    const valorParcela = valorTotal / parcelas;
+
+    for (let i = 0; i < parcelas; i++) {
+      const competencia = adicionarMeses(primeiraCompetencia, i);
+
+      if (competencia <= mesSelecionado) {
+        const chave = `${cartaoId}|${competencia}`;
+        const atual = faturasProjetadas.get(chave) || 0;
+        faturasProjetadas.set(chave, atual + valorParcela);
+      }
+    }
+  }
+
+  let totalFaturasPagasNoMes = 0;
+  let totalFaturasEmAbertoMes = 0;
+  let totalFaturasEmAbertoAtrasadas = 0;
+  let totalAdiantadasNoMes = 0;
+
+  const resumoPorCartao = new Map<number, ResumoCartao>();
+
+  for (const cartao of cartoes) {
+    resumoPorCartao.set(cartao.id, {
+      id: cartao.id,
+      nome: cartao.nome,
+      limite: normalizarNumero(cartao.limite),
+      emAberto: 0,
+    });
+  }
+
+  for (const [chave, valorFatura] of faturasProjetadas.entries()) {
+    const [cartaoIdStr, competencia] = chave.split("|");
+    const cartaoId = Number(cartaoIdStr);
+
+    const pagamento = faturasPagamento.find(
+      (item) =>
+        item.cartao_id === cartaoId &&
+        item.mes_referencia === competencia &&
+        (item.status ?? "").toLowerCase() === "paga"
+    );
+
+    if (!pagamento) {
+      if (competencia < mesSelecionado) {
+        totalFaturasEmAbertoAtrasadas += valorFatura;
+      } else if (competencia === mesSelecionado) {
+        totalFaturasEmAbertoMes += valorFatura;
+      }
+
+      const resumo = resumoPorCartao.get(cartaoId);
+      if (resumo) resumo.emAberto += valorFatura;
+      continue;
+    }
+
+    const mesPagamento = pagamento.data_pagamento?.slice(0, 7);
+
+    if (mesPagamento === mesSelecionado) {
+      const valorPago = normalizarNumero(pagamento.valor_pago || valorFatura);
+      totalFaturasPagasNoMes += valorPago;
+
+      if (competencia > mesSelecionado) {
+        totalAdiantadasNoMes += valorPago;
+      }
+    } else {
+      const resumo = resumoPorCartao.get(cartaoId);
+      if (resumo && competencia <= mesSelecionado) {
+        resumo.emAberto += valorFatura;
+      }
+    }
+  }
+
+  let totalContasPagasNoMes = 0;
+  let totalContasEmAbertoMes = 0;
+  let totalContasEmAbertoAtrasadas = 0;
+
+  const contasAtivas = contas.filter((conta) => conta.ativa !== false);
+
+for (const conta of contasAtivas) {
+  if (!conta.inicio_cobranca) continue;
+  if (conta.inicio_cobranca > mesSelecionado) continue;
+
+  const competencias: string[] = [];
+
+  if (conta.tipo_recorrencia === "indeterminada") {
+    let atual = conta.inicio_cobranca;
+    while (atual <= mesSelecionado) {
+      competencias.push(atual);
+      atual = adicionarMeses(atual, 1);
+    }
+  } else {
+    const ultimoMes = getUltimoMesConta(conta);
+    if (!ultimoMes) continue;
+
+    let atual = conta.inicio_cobranca;
+    while (atual <= mesSelecionado && atual <= ultimoMes) {
+      competencias.push(atual);
+      atual = adicionarMeses(atual, 1);
+    }
+  }
+
+  for (const competencia of competencias) {
+    const pagamento = pagamentosContas.find(
+      (item) =>
+        Number(item.origem_id) === conta.id &&
+        item.mes_referencia === competencia &&
+        (item.status ?? "").toLowerCase() === "paga"
+    );
+
+    const valorConta = normalizarNumero(conta.valor);
+
+    if (!pagamento) {
+      if (competencia < mesSelecionado) {
+        totalContasEmAbertoAtrasadas += valorConta;
+      } else if (competencia === mesSelecionado) {
+        totalContasEmAbertoMes += valorConta;
+      }
+      continue;
+    }
+
+    const mesPagamento = pagamento.data_pagamento?.slice(0, 7);
+
+    if (mesPagamento === mesSelecionado) {
+      totalContasPagasNoMes += normalizarNumero(
+        pagamento.valor_pago || valorConta
+      );
+    }
+  }
+}
+  const totalSaidasPagas =
+    totalDespesasAvista + totalFaturasPagasNoMes + totalContasPagasNoMes;
+
+  const comprometidoMes =
+    totalFaturasEmAbertoMes + totalContasEmAbertoMes;
+
+  const comprometidoAtrasado =
+    totalFaturasEmAbertoAtrasadas + totalContasEmAbertoAtrasadas;
+
+  const totalComprometido = comprometidoMes + comprometidoAtrasado;
+
+  return {
+    saldoInicial: 0,
+    entradas: totalEntradas,
+    saidasPagas: totalSaidasPagas,
+    comprometidoMes,
+    comprometidoAtrasado,
+    comprometido: totalComprometido,
+    saldoDisponivel: totalEntradas - totalSaidasPagas,
+    adiantadas: totalAdiantadasNoMes,
+    cartoesResumo: Array.from(resumoPorCartao.values()),
+  };
+}
+
+function calcularSnapshotDoMes(
+  mesSelecionado: string,
+  movimentacoes: Movimentacao[],
+  faturasPagamento: FaturaPagamento[],
+  cartoes: Cartao[],
+  contas: ContaFixaDashboard[],
+  pagamentosContas: PagamentoContaDashboard[]
+): MonthSnapshot {
+  const base = calcularSnapshotDoMesBase(
+    mesSelecionado,
+    movimentacoes,
+    faturasPagamento,
+    cartoes,
+    contas,
+    pagamentosContas
+  );
+
+  const saldoInicial = calcularSaldoInicialMes(
+    mesSelecionado,
+    movimentacoes,
+    faturasPagamento,
+    cartoes,
+    contas,
+    pagamentosContas
+  );
+
+  const saldoDisponivel = saldoInicial + base.entradas - base.saidasPagas;
+
+  return {
+    ...base,
+    saldoInicial,
+    saldoDisponivel,
+  };
+}
+
+function formatarPrazoCurto(data: string | null) {
+  if (!data) return "Sem prazo";
+  if (/^\d{4}-\d{2}$/.test(data)) return formatarCompetencia(data);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(data)) return formatarData(data);
+  return data;
+}
+
+
+function getDataPrazoMeta(prazo: string | null) {
+  if (!prazo) return null;
+
+  if (/^\d{4}-\d{2}$/.test(prazo)) {
+    const [ano, mes] = prazo.split("-").map(Number);
+    return new Date(ano, mes, 0);
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(prazo)) {
+    return new Date(`${prazo}T23:59:59`);
+  }
+
+  return null;
+}
+
+function calcularPlanoMeta(meta: MetaResumo, saldoDisponivel: number, prioridade: number): MetaPlanoRadar | null {
+  if (!meta.id || meta.faltante <= 0) return null;
+
+  const dataPrazo = getDataPrazoMeta(meta.prazo);
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  const diasAtePrazo = dataPrazo
+    ? Math.max(
+        Math.ceil((dataPrazo.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24)),
+        1
+      )
+    : 30;
+
+  const valorPorDia = meta.faltante / diasAtePrazo;
+  const multiplicadorPrioridade = prioridade === 1 ? 1.25 : prioridade === 2 ? 1 : 0.85;
+  const valorSugeridoHoje = saldoDisponivel > 0
+    ? Math.min(meta.faltante, Math.max(valorPorDia * multiplicadorPrioridade, valorPorDia))
+    : 0;
+
+  return {
+    id: meta.id,
+    nome: meta.nome,
+    prazo: meta.prazo,
+    faltante: meta.faltante,
+    valorPorDia,
+    valorSugeridoHoje,
+    percentual: meta.percentual,
+    prioridade,
+  };
+}
+
+function gerarInsights({
+  entradas,
+  saidas,
+  comprometido,
+  saldo,
+  metas,
+}: {
+  entradas: number;
+  saidas: number;
+  comprometido: number;
+  saldo: number;
+  metas: MetasSnapshot;
+}) {
+  const insights: {
+    tipo: "alerta" | "positivo" | "neutro";
+    texto: string;
+  }[] = [];
+
+  const usoTotal = saidas + comprometido;
+
+  if (usoTotal > entradas) {
+    insights.push({
+      tipo: "alerta",
+      texto: `Você já comprometeu mais do que ganhou este mês.`,
+    });
+  }
+
+  if (saldo > 0 && metas.metaMaisProxima) {
+    insights.push({
+      tipo: "positivo",
+      texto: `Você pode aportar até ${formatarMoeda(
+        saldo
+      )} na meta "${metas.metaMaisProxima.nome}".`,
+    });
+  }
+
+  if (saidas === 0 && comprometido > 0) {
+    insights.push({
+      tipo: "neutro",
+      texto: `Você ainda não teve saídas reais, mas já possui valores comprometidos.`,
+    });
+  }
+
+  if (insights.length === 0) {
+    insights.push({
+      tipo: "neutro",
+      texto: `Seu mês está equilibrado até agora.`,
+    });
+  }
+
+  return insights;
+}
+
+function gerarPrevisao({
+  entradas,
+  saidas,
+  comprometido,
+}: {
+  entradas: number;
+  saidas: number;
+  comprometido: number;
+}) {
+  const hoje = new Date();
+  const diaAtual = hoje.getDate();
+
+  const ultimoDiaMes = new Date(
+    hoje.getFullYear(),
+    hoje.getMonth() + 1,
+    0
+  ).getDate();
+
+  const diasRestantes = Math.max(ultimoDiaMes - diaAtual + 1, 1);
+
+  const gastoDiarioAtual = diaAtual > 0 ? saidas / diaAtual : 0;
+
+  // projeção conservadora: o que ainda falta pagar + ritmo atual de gasto real
+  const previsaoSaidasReaisRestantes = gastoDiarioAtual * diasRestantes;
+  const saldoFinalPrevisto =
+    entradas - saidas - comprometido - previsaoSaidasReaisRestantes;
+
+  const gastoDiarioPermitido =
+    diasRestantes > 0
+      ? (entradas - saidas - comprometido) / diasRestantes
+      : 0;
+
+  return {
+    saldoFinalPrevisto,
+    gastoDiarioAtual,
+    gastoDiarioPermitido,
+    diasRestantes,
+  };
+}
+
+function calcularValorAtualMetaDashboard(
+  meta: Record<string, unknown>,
+  aportes: Record<string, unknown>[]
+) {
+  const valorInicial = getNumeroCampo(meta, ["valor_inicial"], 0);
+  const valorAtualBase = getNumeroCampo(
+    meta,
+    ["valor_atual", "valor_guardado", "guardado", "saved_amount", "valor"],
+    0
+  );
+
+  const base = valorAtualBase > 0 ? valorAtualBase : valorInicial;
+
+  const totalHistorico = aportes.reduce((acc, item) => {
+    const valor = getNumeroCampo(item, ["valor"], 0);
+    const tipo = getStringCampo(item, ["tipo"], "").toLowerCase();
+
+    if (tipo === "aporte") return acc + valor;
+    if (tipo === "retirada") return acc - valor;
+    if (tipo === "ajuste") return acc + valor;
+
+    return acc;
+  }, 0);
+
+  return base + totalHistorico;
+}
+
+function calcularMetasSnapshotComAportes(
+  metasRaw: Record<string, unknown>[],
+  aportesRaw: Record<string, unknown>[]
+): MetasSnapshot {
+  const metas = metasRaw
+    .filter((meta) => {
+      const status = getStringCampo(meta, ["status"], "ativa").toLowerCase();
+      const considerar =
+        typeof meta.considerar_na_dashboard === "boolean"
+          ? meta.considerar_na_dashboard
+          : true;
+
+      return status === "ativa" && considerar;
+    })
+    .map((meta, index) => {
+      const metaId = getStringCampo(meta, ["id"], "");
+      const aportesDaMeta = aportesRaw.filter(
+        (item) => getStringCampo(item, ["meta_id"], "") === metaId
+      );
+
+      const nome =
+        getStringCampo(meta, ["nome", "titulo", "descricao"], `Meta ${index + 1}`) ||
+        `Meta ${index + 1}`;
+
+      const valorMeta = Math.max(
+        getNumeroCampo(meta, [
+          "valor_meta",
+          "valor_alvo",
+          "meta",
+          "objetivo",
+          "target_amount",
+        ]),
+        0
+      );
+
+      const valorAtual = Math.max(
+        calcularValorAtualMetaDashboard(meta, aportesDaMeta),
+        0
+      );
+
+      const prazo =
+        getStringCampo(meta, ["prazo", "data_limite", "deadline"], "") || null;
+
+      const faltante = Math.max(valorMeta - valorAtual, 0);
+      const percentual =
+        valorMeta > 0 ? Math.min((valorAtual / valorMeta) * 100, 100) : 0;
+
+      return {
+        id: metaId,
+        nome,
+        valorMeta,
+        valorAtual,
+        faltante,
+        percentual,
+        prazo,
+      };
+    })
+    .filter((meta) => meta.valorMeta > 0 || meta.valorAtual > 0);
+
+  const totalGuardado = metas.reduce((acc, meta) => acc + meta.valorAtual, 0);
+
+  const metasOrdenadas = [...metas]
+    .filter((meta) => meta.faltante > 0)
+    .sort((a, b) => {
+      const aTemPrazo = Boolean(a.prazo);
+      const bTemPrazo = Boolean(b.prazo);
+
+      if (aTemPrazo && !bTemPrazo) return -1;
+      if (!aTemPrazo && bTemPrazo) return 1;
+
+      if (a.prazo && b.prazo && a.prazo !== b.prazo) {
+        return a.prazo.localeCompare(b.prazo);
+      }
+
+      return a.faltante - b.faltante;
+    });
+
+  return {
+    totalGuardado,
+    quantidadeAtivas: metas.length,
+    metaMaisProxima: metasOrdenadas[0] ?? null,
+    metasOrdenadas,
+  };
+}
+
+function gerarRecomendacoes({
+  saldo,
+  previsao,
+  metas,
+}: {
+  saldo: number;
+  previsao: ReturnType<typeof gerarPrevisao>;
+  metas: MetasSnapshot;
+}): RecomendacaoItem[] {
+  const recomendacoes: RecomendacaoItem[] = [];
+
+  if (previsao.saldoFinalPrevisto < 0) {
+    const deficit = Math.abs(previsao.saldoFinalPrevisto);
+
+    recomendacoes.push({
+      tipo: "alerta",
+      texto: `Você precisa reduzir cerca de ${formatarMoeda(
+        deficit / (previsao.diasRestantes || 1)
+      )} por dia para não fechar o mês negativo.`,
+    });
+  }
+
+  if (saldo > 0 && metas.metaMaisProxima?.id) {
+    const valorSugerido = Number((saldo * 0.5).toFixed(2));
+
+    recomendacoes.push({
+      tipo: "acao",
+      texto: `Você pode guardar ${formatarMoeda(
+        valorSugerido
+      )} hoje na meta "${metas.metaMaisProxima.nome}".`,
+      acao: {
+        tipo: "guardar_meta",
+        valor: valorSugerido,
+        metaId: metas.metaMaisProxima.id,
+        metaNome: metas.metaMaisProxima.nome,
+      },
+    });
+  }
+
+  if (saldo > 0 && previsao.saldoFinalPrevisto > 0) {
+    recomendacoes.push({
+      tipo: "acao",
+      texto: `Você está em um bom ritmo. Continue mantendo seus gastos controlados.`,
+    });
+  }
+
+  if (recomendacoes.length === 0) {
+    recomendacoes.push({
+      tipo: "acao",
+      texto: `Sem ações necessárias agora.`,
+    });
+  }
+
+  return recomendacoes;
+}
+
 function ModalLancamentoDashboard({
   open,
   onClose,
@@ -1189,7 +1697,7 @@ function ModalLancamentoDashboard({
             <div className="flex-1 overflow-y-auto px-6 py-6">
               <div className="space-y-6">
                 <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-6">
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <label className="text-sm font-medium text-slate-700">Tipo</label>
                     <div className="flex gap-2 rounded-xl bg-slate-100 p-1">
                       <button
@@ -1406,10 +1914,12 @@ function DashboardSkeleton() {
 
 export default function DashboardPage() {
   const [mesSelecionado, setMesSelecionado] = useState(getMesAtual());
-
+  const [saldoInicialMes, setSaldoInicialMes] = useState(0);
   const [entradasMes, setEntradasMes] = useState(0);
   const [saidasPagasMes, setSaidasPagasMes] = useState(0);
   const [comprometido, setComprometido] = useState(0);
+  const [comprometidoMes, setComprometidoMes] = useState(0);
+  const [comprometidoAtrasado, setComprometidoAtrasado] = useState(0);
   const [saldoDisponivel, setSaldoDisponivel] = useState(0);
   const [adiantadasMes, setAdiantadasMes] = useState(0);
 
@@ -1417,6 +1927,7 @@ export default function DashboardPage() {
     totalGuardado: 0,
     quantidadeAtivas: 0,
     metaMaisProxima: null,
+    metasOrdenadas: [],
   });
 
   const [cartoesResumo, setCartoesResumo] = useState<ResumoCartao[]>([]);
@@ -1425,6 +1936,10 @@ export default function DashboardPage() {
   const [movimentacoesCache, setMovimentacoesCache] = useState<Movimentacao[]>([]);
   const [faturasPagamentoCache, setFaturasPagamentoCache] = useState<FaturaPagamento[]>([]);
   const [cartoesCache, setCartoesCache] = useState<Cartao[]>([]);
+  const [contasCache, setContasCache] = useState<ContaFixaDashboard[]>([]);
+  const [pagamentosContasCache, setPagamentosContasCache] = useState<
+    PagamentoContaDashboard[]
+  >([]);
 
   const [cardAtivo, setCardAtivo] = useState<CardAtivo>(null);
   const [buscaModal, setBuscaModal] = useState("");
@@ -1480,6 +1995,8 @@ export default function DashboardPage() {
       { data: cartoesData, error: cartoesError },
       { data: metasData, error: metasError },
       { data: metaAportesData, error: metaAportesError },
+      { data: contasData, error: contasError },
+      { data: pagamentosContasData, error: pagamentosContasError },
     ] = await Promise.all([
       supabase
         .from("movimentacoes")
@@ -1504,11 +2021,19 @@ export default function DashboardPage() {
         .from("meta_aportes")
         .select("*")
         .eq("user_id", user.id),
+
+      supabase.from("contas_fixas").select("*"),
+
+      supabase.from("pagamentos_contas").select("*"),
     ]);
 
     if (movimentacoesError) console.error("Erro movimentações:", movimentacoesError);
     if (faturasPagamentoError) console.error("Erro faturas_pagamento:", faturasPagamentoError);
     if (cartoesError) console.error("Erro cartoes:", cartoesError);
+    if (contasError) console.error("Erro contas_fixas:", contasError);
+    if (pagamentosContasError) {
+      console.error("Erro pagamentos_contas:", pagamentosContasError);
+    }
     if (metaAportesError) console.error("Erro meta_aportes:", metaAportesError);
 
     if (metasError || metaAportesError) {
@@ -1517,6 +2042,7 @@ export default function DashboardPage() {
         totalGuardado: 0,
         quantidadeAtivas: 0,
         metaMaisProxima: null,
+        metasOrdenadas: [],
       });
     } else {
       const metasNormalizadas = calcularMetasSnapshotComAportes(
@@ -1527,7 +2053,13 @@ export default function DashboardPage() {
       setMetasResumo(metasNormalizadas);
     }
 
-    if (movimentacoesError || faturasPagamentoError || cartoesError) {
+    if (
+      movimentacoesError ||
+      faturasPagamentoError ||
+      cartoesError ||
+      contasError ||
+      pagamentosContasError
+    ) {
       setCarregando(false);
       return;
     }
@@ -1535,24 +2067,33 @@ export default function DashboardPage() {
     const movimentacoes = (movimentacoesData ?? []) as Movimentacao[];
     const faturasPagamento = (faturasPagamentoData ?? []) as FaturaPagamento[];
     const cartoes = (cartoesData ?? []) as Cartao[];
+    const contas = (contasData ?? []) as ContaFixaDashboard[];
+    const pagamentosContas =
+      (pagamentosContasData ?? []) as PagamentoContaDashboard[];
 
     setMovimentacoesCache(movimentacoes);
     setFaturasPagamentoCache(faturasPagamento);
     setCartoesCache(cartoes);
+    setContasCache(contas);
+    setPagamentosContasCache(pagamentosContas);
 
     const atual = calcularSnapshotDoMes(
       mesSelecionado,
       movimentacoes,
       faturasPagamento,
-      cartoes
+      cartoes,
+      contas,
+      pagamentosContas
     );
 
+    setSaldoInicialMes(atual.saldoInicial);
     setEntradasMes(atual.entradas);
     setSaidasPagasMes(atual.saidasPagas);
     setComprometido(atual.comprometido);
+    setComprometidoMes(atual.comprometidoMes);
+    setComprometidoAtrasado(atual.comprometidoAtrasado);
     setSaldoDisponivel(atual.saldoDisponivel);
     setAdiantadasMes(atual.adiantadas);
-    setCartoesResumo(atual.cartoesResumo);
 
     const meses = Array.from({ length: 6 }, (_, index) =>
       adicionarMeses(mesSelecionado, -(5 - index))
@@ -1563,7 +2104,9 @@ export default function DashboardPage() {
         mesRef,
         movimentacoes,
         faturasPagamento,
-        cartoes
+        cartoes,
+        contas,
+        pagamentosContas
       );
 
       return {
@@ -1575,10 +2118,12 @@ export default function DashboardPage() {
       };
     });
 
+    setCartoesResumo(atual.cartoesResumo);
     setChartData(historico);
     setCarregando(false);
   }, [mesSelecionado]);
-    useEffect(() => {
+
+  useEffect(() => {
     let ativo = true;
 
     const executar = async () => {
@@ -1586,7 +2131,7 @@ export default function DashboardPage() {
       await carregarDashboard();
     };
 
-    executar();
+    void executar();
 
     return () => {
       ativo = false;
@@ -1631,6 +2176,53 @@ export default function DashboardPage() {
     });
   }, [saldoDisponivel, previsao, metasResumo]);
 
+  const metasNoRadar = useMemo(() => {
+    return (metasResumo.metasOrdenadas ?? [])
+      .slice(0, 3)
+      .map((meta, index) => calcularPlanoMeta(meta, saldoDisponivel, index + 1))
+      .filter((item): item is MetaPlanoRadar => item !== null);
+  }, [metasResumo.metasOrdenadas, saldoDisponivel]);
+
+  const alertasContas = useMemo(() => {
+  const contasDoMes = contasCache.filter((conta) =>
+  contaEstaPendenteAteMes(conta, mesSelecionado, pagamentosContasCache)
+);
+
+  const itens = contasDoMes
+    .map((conta) => {
+      const info = getStatusContaDashboard(
+        conta,
+        mesSelecionado,
+        pagamentosContasCache
+      );
+
+      return {
+        conta,
+        ...info,
+      };
+    })
+    .filter((item) =>
+      ["vencida", "vence_hoje", "vence_breve"].includes(item.status)
+    )
+    .sort((a, b) => a.dataVencimento.localeCompare(b.dataVencimento));
+
+  return {
+    vencidas: itens.filter((item) => item.status === "vencida"),
+    vencemHoje: itens.filter((item) => item.status === "vence_hoje"),
+    vencemBreve: itens.filter((item) => item.status === "vence_breve"),
+    total: itens.length,
+    itens,
+  };
+}, [contasCache, mesSelecionado, pagamentosContasCache]);
+
+  const sugestoesReceita = useMemo(() => {
+  return gerarSugestoesReceita({
+    saldoProjetado: sobraProjetada,
+    alertasContas,
+    metas: metasResumo,
+  });
+}, [sobraProjetada, alertasContas, metasResumo]);
+
   const modalResumo = useMemo(() => {
     const [ano, mes] = mesSelecionado.split("-").map(Number);
     const inicioMes = `${mesSelecionado}-01`;
@@ -1666,7 +2258,9 @@ export default function DashboardPage() {
 
       return {
         titulo: "Entradas do mês",
-        subtitulo: `Todos os lançamentos de entrada de ${formatarMesExtenso(mesSelecionado)}.`,
+        subtitulo: `Todos os lançamentos de entrada de ${formatarMesExtenso(
+          mesSelecionado
+        )}.`,
         itens,
       };
     }
@@ -1706,10 +2300,36 @@ export default function DashboardPage() {
           pagamentoLabel: "Fatura paga",
         }));
 
+      const itensContasPagas: ModalLancamentoItem[] = pagamentosContasCache
+        .filter(
+          (item) =>
+            (item.status ?? "").toLowerCase() === "paga" &&
+            item.data_pagamento?.slice(0, 7) === mesSelecionado &&
+            item.mes_referencia === mesSelecionado
+        )
+        .map((item) => {
+          const conta = contasCache.find(
+            (contaItem) => contaItem.id === Number(item.origem_id)
+          );
+
+          return {
+            id: `conta-paga-${item.id}`,
+            tipo: "conta" as const,
+            titulo: conta?.descricao || "Conta paga",
+            categoria: conta?.categoria || "Conta",
+            valor: normalizarNumero(item.valor_pago || conta?.valor),
+            dataPrincipal: formatarData(item.data_pagamento),
+            pagamentoLabel: "Conta paga",
+            competencia: `Competência ${formatarCompetencia(item.mes_referencia || "")}`,
+          };
+        });
+
       return {
         titulo: "Saídas pagas",
-        subtitulo: `Despesas à vista e faturas pagas em ${formatarMesExtenso(mesSelecionado)}.`,
-        itens: [...itensDespesas, ...itensFaturasPagas],
+        subtitulo: `Despesas à vista, contas e faturas pagas em ${formatarMesExtenso(
+          mesSelecionado
+        )}.`,
+        itens: [...itensDespesas, ...itensContasPagas, ...itensFaturasPagas],
       };
     }
 
@@ -1828,15 +2448,111 @@ export default function DashboardPage() {
         }
       }
 
+      const contasAtivas = contasCache.filter((conta) => conta.ativa !== false);
+
+for (const conta of contasAtivas) {
+  if (!conta.inicio_cobranca) continue;
+  if (conta.inicio_cobranca > mesSelecionado) continue;
+
+  const competencias: string[] = [];
+
+  if (conta.tipo_recorrencia === "indeterminada") {
+    let atual = conta.inicio_cobranca;
+    while (atual <= mesSelecionado) {
+      competencias.push(atual);
+      atual = adicionarMeses(atual, 1);
+    }
+  } else {
+    const ultimoMes = getUltimoMesConta(conta);
+    if (!ultimoMes) continue;
+
+    let atual = conta.inicio_cobranca;
+    while (atual <= mesSelecionado && atual <= ultimoMes) {
+      competencias.push(atual);
+      atual = adicionarMeses(atual, 1);
+    }
+  }
+
+  for (const competencia of competencias) {
+    const pagamento = pagamentosContasCache.find(
+      (item) =>
+        Number(item.origem_id) === conta.id &&
+        item.mes_referencia === competencia &&
+        (item.status ?? "").toLowerCase() === "paga"
+    );
+
+    if (!pagamento) {
+      itens.push({
+        id: `conta-aberta-${conta.id}-${competencia}`,
+        tipo: "conta",
+        titulo: conta.descricao,
+        categoria: conta.categoria || "Conta",
+        valor: normalizarNumero(conta.valor),
+        dataPrincipal: `Vencimento dia ${String(
+          conta.dia_vencimento || 1
+        ).padStart(2, "0")}`,
+        competencia: `Competência ${formatarCompetencia(competencia)}`,
+        pagamentoLabel: "Conta em aberto",
+      });
+    }
+  }
+}
+
       return {
         titulo: "Comprometido",
-        subtitulo: `Faturas em aberto acumuladas até ${formatarMesExtenso(mesSelecionado)}.`,
+        subtitulo: `Faturas e contas em aberto acumuladas até ${formatarMesExtenso(
+          mesSelecionado
+        )}.`,
+        itens,
+      };
+    }
+
+    if (cardAtivo === "contas") {
+      const itens = contasCache
+        .filter(
+          (conta) => conta.ativa !== false && contaExisteNoMes(conta, mesSelecionado)
+        )
+        .map((conta) => {
+          const pagamento = pagamentosContasCache.find(
+            (item) =>
+              Number(item.origem_id) === conta.id &&
+              item.mes_referencia === mesSelecionado &&
+              (item.status ?? "").toLowerCase() === "paga"
+          );
+
+          return {
+            id: `conta-${conta.id}-${mesSelecionado}`,
+            tipo: "conta" as const,
+            titulo: conta.descricao,
+            categoria: conta.categoria || "Conta",
+            valor: normalizarNumero(conta.valor),
+            dataPrincipal: pagamento?.data_pagamento
+              ? formatarData(pagamento.data_pagamento)
+              : `Vence dia ${String(conta.dia_vencimento || 1).padStart(2, "0")}`,
+            pagamentoLabel: pagamento ? "Paga" : "Em aberto",
+            competencia: `Competência ${formatarCompetencia(mesSelecionado)}`,
+          };
+        });
+
+      return {
+        titulo: "Contas do mês",
+        subtitulo: `Contas recorrentes e temporárias de ${formatarMesExtenso(
+          mesSelecionado
+        )}.`,
         itens,
       };
     }
 
     return null;
-  }, [cardAtivo, cartoesCache, faturasPagamentoCache, mesSelecionado, movimentacoesCache]);
+  }, [
+    cardAtivo,
+    cartoesCache,
+    contasCache,
+    faturasPagamentoCache,
+    mesSelecionado,
+    movimentacoesCache,
+    pagamentosContasCache,
+  ]);
 
   const executarAcao = useCallback(
     async (acao: RecomendacaoAcao) => {
@@ -1892,16 +2608,8 @@ export default function DashboardPage() {
         });
 
       if (movimentacaoError) {
-        console.error("Erro ao registrar despesa da meta:", {
-          message: movimentacaoError.message,
-          details: movimentacaoError.details,
-          hint: movimentacaoError.hint,
-          code: movimentacaoError.code,
-          full: movimentacaoError,
-        });
-
+        console.error("Erro ao registrar despesa da meta:", movimentacaoError);
         await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
-
         alert(
           `Erro ao registrar despesa da meta:\n${
             movimentacaoError.message ?? "Sem mensagem"
@@ -1919,6 +2627,46 @@ export default function DashboardPage() {
     },
     [carregarDashboard]
   );
+
+  const pagarContaDashboard = useCallback(
+  async (conta: ContaFixaDashboard) => {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      alert("Você precisa estar logado.");
+      return;
+    }
+
+    const { error } = await supabase.from("pagamentos_contas").upsert(
+      {
+        origem_tipo: "fixa",
+        origem_id: conta.id,
+        mes_referencia: mesSelecionado,
+        valor_pago: normalizarNumero(conta.valor),
+        data_pagamento: getHoje(),
+        status: "paga",
+        user_id: user.id,
+      },
+      {
+        onConflict: "origem_tipo,origem_id,mes_referencia",
+      }
+    );
+
+    if (error) {
+      console.error("Erro ao pagar conta:", error);
+      alert(`Erro ao pagar conta: ${error.message}`);
+      return;
+    }
+
+    setToast(`Conta "${conta.descricao}" marcada como paga`);
+    await carregarDashboard();
+    setTimeout(() => setToast(null), 2500);
+  },
+  [carregarDashboard, mesSelecionado]
+);
 
   async function handleSaveAction(e: React.FormEvent) {
     e.preventDefault();
@@ -2025,45 +2773,80 @@ export default function DashboardPage() {
         <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
           <div className="relative">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.10),transparent_30%),radial-gradient(circle_at_left,rgba(16,185,129,0.08),transparent_30%)]" />
-
             <div className="relative flex flex-col gap-6 p-6 md:p-8 xl:flex-row xl:items-end xl:justify-between">
-              <div className="space-y-4">
-                <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-600">
+              <div className="space-y-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm">
                   <CalendarDays className="h-3.5 w-3.5" />
                   Referência: {formatarMesExtenso(mesSelecionado)}
                 </div>
-
-                <div>
-                  <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 md:text-4xl">
-                    Dashboard
-                  </h1>
-                  <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-500">
-                    Visão rápida do mês, com foco no que realmente importa agora.
-                  </p>
-                </div>
+<div className="space-y-1">
+  <h1 className="text-5xl font-bold tracking-tight text-zinc-900">
+    Dashboard
+  </h1>
+  <p className="text-base text-zinc-600">
+    Sua visão financeira atual, com foco no que importa agora.
+  </p>
+</div>
+                
 
                 <div className="flex flex-wrap gap-3 pt-1">
                   <button
                     type="button"
                     onClick={() => openActionModal("entrada")}
-                    className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+                    className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-8 w-4" />
                     Nova entrada
                   </button>
 
                   <button
                     type="button"
                     onClick={() => openActionModal("despesa")}
-                    className="flex items-center gap-2 rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-black"
+                    className="flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-black"
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-8 w-4" />
                     Nova despesa
                   </button>
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:w-full xl:max-w-130">
+              <div className="grid gap-3 sm:grid-cols-2 xl:w-full xl:max-w-140">
+                <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5 sm:col-span-2">
+                  <p className="text-3xl font-bold text-emerald-700">
+                    Saldo real em conta
+                  </p>
+                  <p className="mt-2 text-3xl font-semibold text-emerald-700">
+                    {formatarMoeda(saldoDisponivel)}
+                  </p>
+                  <p className="mt-2 text-xs text-emerald-700/80">
+                    Dinheiro real disponível considerando o fechamento do mês anterior.
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-red-200 bg-red-50/80 p-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-red-700">
+                    Atrasado
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-red-700">
+                    {formatarMoeda(comprometidoAtrasado)}
+                  </p>
+                  <p className="mt-2 text-xs text-red-700/80">
+                    Contas e faturas pendentes de meses anteriores.
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-yellow-200 bg-yellow-50/80 p-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-yellow-700">
+                    Comprometido do mês
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-yellow-700">
+                    {formatarMoeda(comprometidoMes)}
+                  </p>
+                  <p className="mt-2 text-xs text-yellow-700/80">
+                    O que ainda precisa sair nesta competência.
+                  </p>
+                </div>
+
                 <div className="rounded-3xl border border-zinc-200 bg-white/90 p-4">
                   <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
                     Entradas
@@ -2081,34 +2864,12 @@ export default function DashboardPage() {
                     {formatarMoeda(saidasPagasMes)}
                   </p>
                 </div>
-
-                <div className="rounded-3xl border border-orange-200 bg-orange-50/80 p-4">
-                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-orange-700">
-                    Comprometido
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-orange-700">
-                    {formatarMoeda(comprometido)}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-zinc-200 bg-white/90 p-4">
-                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
-                    Saldo disponível
-                  </p>
-                  <p
-                    className={`mt-2 text-2xl font-semibold ${
-                      saldoDisponivel >= 0 ? "text-zinc-900" : "text-red-600"
-                    }`}
-                  >
-                    {formatarMoeda(saldoDisponivel)}
-                  </p>
-                </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
             <div className="p-6">
               <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
@@ -2143,21 +2904,17 @@ export default function DashboardPage() {
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <div className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-5">
-                  <p className="text-sm font-medium text-zinc-500">Saldo disponível</p>
-                  <p
-                    className={`mt-2 text-3xl font-semibold tracking-tight ${
-                      saldoDisponivel >= 0 ? "text-zinc-900" : "text-red-600"
-                    }`}
-                  >
-                    {formatarMoeda(saldoDisponivel)}
+                  <p className="text-sm font-medium text-zinc-500">Saldo inicial do mês</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900">
+                    {formatarMoeda(saldoInicialMes)}
                   </p>
                   <p className="mt-2 text-sm text-zinc-500">
-                    O que realmente sobrou no mês até agora.
+                    Valor carregado do mês anterior para abrir esta competência.
                   </p>
                 </div>
 
                 <div className="rounded-3xl border border-orange-200 bg-orange-50/80 p-5">
-                  <p className="text-sm font-medium text-orange-700">Sobra projetada</p>
+                  <p className="text-sm font-medium text-orange-700">Se pagar tudo hoje</p>
                   <p
                     className={`mt-2 text-3xl font-semibold tracking-tight ${
                       sobraProjetada >= 0 ? "text-orange-700" : "text-red-600"
@@ -2166,7 +2923,7 @@ export default function DashboardPage() {
                     {formatarMoeda(sobraProjetada)}
                   </p>
                   <p className="mt-2 text-sm text-orange-700/80">
-                    Quanto sobraria se você quitasse tudo que ainda está em aberto.
+                    Quanto sobraria depois de quitar tudo que ainda está em aberto.
                   </p>
                 </div>
               </div>
@@ -2175,7 +2932,7 @@ export default function DashboardPage() {
 
           <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
             <div className="p-6">
-              <p className="text-sm font-medium text-zinc-500">Leitura rápida</p>
+              <p className="text-sm font-medium text-zinc-500">Panorama rápido</p>
 
               <div className="mt-4 space-y-4">
                 <div>
@@ -2208,13 +2965,33 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <p className="text-xs uppercase tracking-[0.12em] text-zinc-500">
-                    Referência atual
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-zinc-900">
-                    {formatarMesExtenso(mesSelecionado)}
-                  </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.12em] text-zinc-500">
+                      Em atraso
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-red-600">
+                      {formatarMoeda(comprometidoAtrasado)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.12em] text-zinc-500">
+                      Neste mês
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-yellow-700">
+                      {formatarMoeda(comprometidoMes)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.12em] text-zinc-500">
+                      Total em aberto
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-orange-700">
+                      {formatarMoeda(comprometido)}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2222,17 +2999,210 @@ export default function DashboardPage() {
         </section>
 
         <section className="space-y-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-zinc-900">Inteligência do mês</h2>
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">Inteligência do mês</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              O essencial para decidir o que fazer agora, sem poluição visual.
+            </p>
+          </div>
 
-          <InsightsCard insights={insights} />
-          <PrevisaoCard previsao={previsao} />
-          <RecomendacoesCard
-            recomendacoes={recomendacoes ?? []}
-            onExecutar={executarAcao}
-          />
+          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="space-y-3">
+              <h3 className="text-base font-semibold text-zinc-900">Situação do mês</h3>
+
+              {insights.map((item, i) => {
+                const estilo =
+                  item.tipo === "alerta"
+                    ? "border-red-200 bg-red-50 text-red-700"
+                    : item.tipo === "positivo"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-zinc-200 bg-zinc-50 text-zinc-700";
+
+                return (
+                  <div
+                    key={`insight-${i}`}
+                    className={`rounded-2xl border px-4 py-3 text-sm font-medium ${estilo}`}
+                  >
+                    {item.texto}
+                  </div>
+                );
+              })}
+
+              <div
+                className={`rounded-2xl border px-4 py-3 text-sm font-medium ${
+                  previsao.saldoFinalPrevisto < 0
+                    ? "border-red-200 bg-red-50 text-red-700"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                }`}
+              >
+                {previsao.saldoFinalPrevisto < 0
+                  ? `Se continuar assim, você fechará o mês com ${formatarMoeda(
+                      previsao.saldoFinalPrevisto
+                    )}`
+                  : `Você terminará o mês com aproximadamente ${formatarMoeda(
+                      previsao.saldoFinalPrevisto
+                    )}`}
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                Gasto médio diário: <strong>{formatarMoeda(previsao.gastoDiarioAtual)}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-base font-semibold text-zinc-900">Próximas ações</h3>
+
+              {recomendacoes.map((item, i) => {
+                const estilo =
+                  item.tipo === "alerta"
+                    ? "border-red-200 bg-red-50 text-red-700"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+                return (
+                  <div
+                    key={`acao-${i}`}
+                    className={`rounded-2xl border px-4 py-3 text-sm font-medium ${estilo}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span>{item.texto}</span>
+                      {item.acao ? (
+                        <button
+                          type="button"
+                          onClick={() => executarAcao(item.acao!)}
+                          className="shrink-0 rounded-xl bg-black px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+                        >
+                          Guardar agora
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {sugestoesReceita.slice(0, 2).map((texto, index) => (
+                <div
+                  key={`sugestao-${index}`}
+                  className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-medium text-violet-700"
+                >
+                  {texto}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-base font-semibold text-zinc-900">Alertas de contas</h3>
+
+            {alertasContas.total === 0 ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                Nenhuma conta crítica no momento.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {alertasContas.vencidas.map((item) => (
+                  <div
+                    key={`vencida-${item.conta.id}`}
+                    className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-red-700">
+                          Conta vencida • {item.conta.descricao}
+                        </p>
+                        <p className="mt-1 text-sm text-red-600">
+                          Venceu em {formatarData(item.dataVencimento)} • {formatarMoeda(normalizarNumero(item.conta.valor))}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <button
+                          className="rounded-xl bg-black px-3 py-1.5 text-xs text-white"
+                          onClick={() => pagarContaDashboard(item.conta)}
+                        >
+                          Pagar
+                        </button>
+                        <Link
+                          href="/contas"
+                          className="inline-flex items-center gap-1 rounded-xl border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Ver em Contas
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {alertasContas.vencemHoje.map((item) => (
+                  <div
+                    key={`hoje-${item.conta.id}`}
+                    className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-amber-700">
+                          Conta vence hoje • {item.conta.descricao}
+                        </p>
+                        <p className="mt-1 text-sm text-amber-600">
+                          Vencimento em {formatarData(item.dataVencimento)} • {formatarMoeda(normalizarNumero(item.conta.valor))}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <button
+                          className="rounded-xl bg-black px-3 py-1.5 text-xs text-white"
+                          onClick={() => pagarContaDashboard(item.conta)}
+                        >
+                          Pagar
+                        </button>
+                        <Link
+                          href="/contas"
+                          className="inline-flex items-center gap-1 rounded-xl border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-50"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Ver em Contas
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {alertasContas.vencemBreve.map((item) => (
+                  <div
+                    key={`breve-${item.conta.id}`}
+                    className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-blue-700">
+                          Conta vencendo em breve • {item.conta.descricao}
+                        </p>
+                        <p className="mt-1 text-sm text-blue-600">
+                          Vence em {formatarData(item.dataVencimento)} • {formatarMoeda(normalizarNumero(item.conta.valor))}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <button
+                          className="rounded-xl bg-black px-3 py-1.5 text-xs text-white"
+                          onClick={() => pagarContaDashboard(item.conta)}
+                        >
+                          Pagar
+                        </button>
+                        <Link
+                          href="/contas"
+                          className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Ver em Contas
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+<section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
             <div className="border-b border-zinc-100 px-6 py-5">
               <div className="flex items-center justify-between gap-4">
@@ -2366,6 +3336,57 @@ export default function DashboardPage() {
 
             <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
               <div className="p-6">
+                <p className="text-sm font-medium text-zinc-500">Metas no radar</p>
+
+                <div className="mt-4 space-y-3">
+                  {metasNoRadar.length === 0 ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                      Nenhuma meta com plano no radar agora.
+                    </div>
+                  ) : (
+                    metasNoRadar.map((meta) => (
+                      <div
+                        key={`radar-${meta.id}`}
+                        className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-zinc-900">
+                              #{meta.prioridade} {meta.nome}
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              Prazo: {formatarPrazoCurto(meta.prazo)}
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700">
+                            {meta.percentual.toFixed(0)}%
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <p className="text-zinc-500">Falta</p>
+                            <p className="font-semibold text-zinc-900">
+                              {formatarMoeda(meta.faltante)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-zinc-500">Por dia</p>
+                            <p className="font-semibold text-blue-700">
+                              {formatarMoeda(meta.valorPorDia)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
+              <div className="p-6">
                 <p className="text-sm font-medium text-zinc-500">Cartões e comprometido</p>
 
                 <div className="mt-4 space-y-3">
@@ -2397,12 +3418,19 @@ export default function DashboardPage() {
                   ))}
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-4 flex gap-3">
                   <Link
                     href="/cartoes"
                     className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
                   >
                     Ver cartões
+                  </Link>
+
+                  <Link
+                    href="/contas"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+                  >
+                    Ver contas
                   </Link>
                 </div>
               </div>
@@ -2410,7 +3438,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <CardResumo
             titulo="Entradas do mês"
             valor={formatarMoeda(entradasMes)}
@@ -2440,13 +3468,15 @@ export default function DashboardPage() {
           <CardResumo
             titulo="Comprometido"
             valor={formatarMoeda(comprometido)}
-            descricao="Faturas ainda em aberto"
+            descricao="Faturas e contas ainda em aberto"
             icon={<CreditCard className="h-5 w-5" />}
             tone="warning"
             active={cardAtivo === "comprometido"}
             onClick={() => {
               setBuscaModal("");
-              setCardAtivo((prev) => (prev === "comprometido" ? null : "comprometido"));
+              setCardAtivo((prev) =>
+                prev === "comprometido" ? null : "comprometido"
+              );
             }}
           />
 
@@ -2460,6 +3490,26 @@ export default function DashboardPage() {
             onClick={() => {
               setBuscaModal("");
               setCardAtivo((prev) => (prev === "adiantadas" ? null : "adiantadas"));
+            }}
+          />
+
+          <CardResumo
+            titulo="Contas do mês"
+            valor={formatarMoeda(
+              contasCache
+                .filter(
+                  (conta) =>
+                    conta.ativa !== false && contaExisteNoMes(conta, mesSelecionado)
+                )
+                .reduce((acc, conta) => acc + normalizarNumero(conta.valor), 0)
+            )}
+            descricao="Total das contas recorrentes e temporárias"
+            icon={<Calendar className="h-5 w-5" />}
+            tone="default"
+            active={cardAtivo === "contas"}
+            onClick={() => {
+              setBuscaModal("");
+              setCardAtivo((prev) => (prev === "contas" ? null : "contas"));
             }}
           />
         </section>
