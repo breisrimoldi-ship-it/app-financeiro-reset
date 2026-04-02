@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { TIPO_RV_LABEL, type TipoRvLancamento } from "../_lib/tipos";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -280,6 +281,7 @@ export default function NovoLancamentoClient({
   const [tipoLancamento, setTipoLancamento] =
     useState<TipoLancamento>("unico");
   const [modoIntervalo, setModoIntervalo] = useState<ModoIntervalo>("resumo");
+  const [tipoRv, setTipoRv] = useState<TipoRvLancamento>("receita_bruta");
 
   const [data, setData] = useState(getHoje());
   const [dataInicio, setDataInicio] = useState(getHoje());
@@ -676,6 +678,7 @@ export default function NovoLancamentoClient({
           {
             data,
             descricao,
+            tipoRv,
             perfil: perfilSelecionado,
             cliente,
             valorRecebido: valorRecebidoNumero,
@@ -767,6 +770,7 @@ export default function NovoLancamentoClient({
           return {
             data: dataItem,
             descricao,
+            tipoRv,
             perfil: perfilSelecionado,
             cliente,
             valorRecebido: recebidoDia,
@@ -835,6 +839,7 @@ export default function NovoLancamentoClient({
         return {
           data: dia.data,
           descricao: dia.descricao.trim() || descricao,
+          tipoRv,
           perfil: perfilSelecionado,
           cliente,
           valorRecebido: valorDia,
@@ -1050,7 +1055,7 @@ export default function NovoLancamentoClient({
                       className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400"
                     />
                   </div>
-                ) : (
+                  ) : (
                   <>
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-zinc-700">
@@ -1162,6 +1167,23 @@ export default function NovoLancamentoClient({
                         className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400"
                       />
                     </div>
+
+                    <div className="space-y-2 md:col-span-2">
+  <label className="text-sm font-medium text-zinc-700">
+    Tipo de lançamento financeiro
+  </label>
+  <select
+    value={tipoRv}
+    onChange={(e) => setTipoRv(e.target.value as TipoRvLancamento)}
+    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400"
+  >
+    {Object.entries(TIPO_RV_LABEL).map(([value, label]) => (
+      <option key={value} value={value}>
+        {label}
+      </option>
+    ))}
+  </select>
+</div>
 
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-zinc-700">

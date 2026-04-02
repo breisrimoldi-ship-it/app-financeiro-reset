@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
+import { parseTipoFromDescricao } from "./_lib/tipos";
 import {
   ArrowRightLeft,
   Plus,
@@ -219,7 +220,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
       : lucroLiquidoMes;
 
   const resumo = {
-    saldoCarteira: Math.max(lucroLiquidoMes - transferidoMes, 0),
+    saldoCarteira: Math.max(lucroLiquidoMes, 0),
     recebidoMes,
     custosMes,
     lucroLiquidoMes,
@@ -231,14 +232,15 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   };
 
   const lancamentos = listaRecentes.map((item) => ({
-    id: item.id,
-    data: item.data,
-    descricao: item.descricao,
-    perfil: item.perfil ?? "—",
-    recebido: Number(item.valor_recebido ?? 0),
-    custo: Number(item.custo_total ?? 0),
-    lucro: Number(item.lucro_liquido ?? 0),
-  }));
+  id: item.id,
+  data: item.data,
+  descricao: item.descricao,
+  tipo: parseTipoFromDescricao(item.descricao ?? ""),
+  perfil: item.perfil ?? "—",
+  recebido: Number(item.valor_recebido ?? 0),
+  custo: Number(item.custo_total ?? 0),
+  lucro: Number(item.lucro_liquido ?? 0),
+}));
 
   return (
     <main className="min-h-screen bg-zinc-50">
