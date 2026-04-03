@@ -33,6 +33,27 @@ type TransferenciaRow = {
   valor: number | null;
 };
 
+type LancamentoHistoricoRow = {
+  data: string;
+  descricao: string;
+  valor_recebido: number | null;
+  custo_total: number | null;
+};
+
+type TransferenciaHistoricoRow = {
+  data_transferencia: string;
+  valor: number | null;
+};
+
+type SerieMensal = {
+  mes: string;
+  receitas: number;
+  aportes: number;
+  custos: number;
+  transferencias: number;
+  lucroLiquido: number;
+};
+
 function formatMoney(value: number) {
   return value.toFixed(2);
 }
@@ -92,6 +113,30 @@ function formatDelta(valorAtual: number, valorAnterior: number) {
   };
 }
 
+function getUltimosMeses(referencia: string, quantidade: number) {
+  const [ano, mes] = referencia.split("-").map(Number);
+  const base = new Date(ano, mes - 1, 1);
+  const meses: string[] = [];
+
+  for (let i = quantidade - 1; i >= 0; i -= 1) {
+    const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+    meses.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  return meses;
+}
+
+function getRangeFromMeses(meses: string[]) {
+  const primeiro = meses[0];
+  const ultimo = meses[meses.length - 1];
+  const inicio = `${primeiro}-01`;
+
+  const [anoFim, mesFim] = ultimo.split("-").map(Number);
+  const ultimoDia = new Date(anoFim, mesFim, 0).getDate();
+  const fim = `${ultimo}-${String(ultimoDia).padStart(2, "0")}`;
+
+  return { inicio, fim };
+}
 
 type FiltroTipo = "todos" | TipoRvLancamento;
 
@@ -221,6 +266,31 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   const listaRecentes = (lancamentosRecentes ?? []) as LancamentoRow[];
   const listaTransferencias = (transferenciasMes ?? []) as TransferenciaRow[];
   const listaTransferenciasMesAnterior = (transferenciasMesAnterior ?? []) as TransferenciaRow[];
+
+  const mesesHistorico = getUltimosMeses(mesSelecionado, 12);
+const { inicio: inicioHistorico, fim: fimHistorico } = getRangeFromMeses(mesesHistorico);
+
+const { data: lancamentosHistorico, error: erroHistoricoLancamentos } = await supabase
+  .from("rv_lancamentos")
+  .select("data, descricao, valor_recebido, custo_total")
+  .eq("user_id", user.id)
+  .gte("data", inicioHistorico)
+  .lte("data", fimHistorico);
+
+if (erroHistoricoLancamentos) {
+  throw new Error(erroHistoricoLancamentos.message);
+}
+
+const { data: transferenciasHistorico, error: erroHistoricoTransferencias } = await supabase
+  .from("rv_transferencias")
+  .select("data_transferencia, valor")
+  .eq("user_id", user.id)
+  .gte("data_transferencia", inicioHistorico)
+  .lte("data_transferencia", fimHistorico);
+
+if (erroHistoricoTransferencias) {
+  throw new Error(erroHistoricoTransferencias.message);
+}
 
   const transferidoMesLegado = listaTransferencias.reduce(
   (acc, item) => acc + Number(item.valor ?? 0),
@@ -379,10 +449,176 @@ const lancamentos =
   tipoSelecionado === "todos"
     ? lancamentosComTipo
     : lancamentosComTipo.filter((item) => item.tipo === tipoSelecionado);
+    const historicoLanc = (lancamentosHistorico ?? []) as LancamentoHistoricoRow[];
+const historicoTransf = (transferenciasHistorico ?? []) as TransferenciaHistoricoRow[];
+
+const serieMap = new Map<string, SerieMensal>();
+for (const mes of mesesHistorico) {
+  serieMap.set(mes, {
+    mes,
+    receitas: 0,
+    aportes: 0,
+    custos: 0,
+    transferencias: 0,
+    lucroLiquido: 0,
+  });
+}
+
+for (const item of historicoLanc) {
+  const mes = item.data?.slice(0, 7);
+  if (!mes || !serieMap.has(mes)) continue;
+
+  const row = serieMap.get(mes)!;
+  const tipo = parseTipoFromDescricao(item.descricao ?? "");
+  const recebido = Number(item.valor_recebido ?? 0);
+  const custo = Number(item.custo_total ?? 0);
+
+  if (tipo === "receita_bruta") row.receitas += recebido;
+  else if (tipo === "aporte_cpf_para_pj") row.aportes += recebido;
+  else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") row.custos += custo;
+  else if (tipo === "transferencia_para_cpf") row.transferencias += custo;
+}
+
+for (const item of historicoTransf) {
+  const mes = item.data_transferencia?.slice(0, 7);
+  if (!mes || !serieMap.has(mes)) continue;
+
+  const row = serieMap.get(mes)!;
+  row.transferencias += Number(item.valor ?? 0);
+}
+
+const serieMensal = Array.from(serieMap.values()).map((row) => ({
+  ...row,
+  lucroLiquido: row.receitas + row.aportes - row.custos - row.transferencias,
+}));
+
+const serieComDados = serieMensal.filter(
+  (m) => m.receitas > 0 || m.aportes > 0 || m.custos > 0 || m.transferencias > 0
+);
+
+const melhorMes =
+  serieComDados.length > 0
+    ? [...serieComDados].sort((a, b) => b.lucroLiquido - a.lucroLiquido)[0]
+    : null;
+
+const piorMes =
+  serieComDados.length > 0
+    ? [...serieComDados].sort((a, b) => a.lucroLiquido - b.lucroLiquido)[0]
+    : null;
+
+const mediaLucro =
+  serieComDados.length > 0
+    ? serieComDados.reduce((acc, m) => acc + m.lucroLiquido, 0) / serieComDados.length
+    : 0;
+
+const ultimos3 = serieMensal.slice(-3);
+const anteriores3 = serieMensal.slice(-6, -3);
+
+const mediaUltimos3 =
+  ultimos3.length > 0 ? ultimos3.reduce((a, m) => a + m.lucroLiquido, 0) / ultimos3.length : 0;
+const mediaAnteriores3 =
+  anteriores3.length > 0
+    ? anteriores3.reduce((a, m) => a + m.lucroLiquido, 0) / anteriores3.length
+    : 0;
+
+const tendencia = mediaUltimos3 - mediaAnteriores3;
+
+const alertasHistorico: string[] = [];
+
+for (let i = 2; i < serieMensal.length; i += 1) {
+  const a = serieMensal[i - 2].lucroLiquido;
+  const b = serieMensal[i - 1].lucroLiquido;
+  const c = serieMensal[i].lucroLiquido;
+  if (a > b && b > c) {
+    alertasHistorico.push(
+      `Queda de lucro por 3 competências seguidas até ${formatCompetenciaLabel(serieMensal[i].mes)}.`
+    );
+    break;
+  }
+}
+
+const atualHistorico = serieMensal[serieMensal.length - 1];
+if (atualHistorico && atualHistorico.receitas > 0) {
+  const pctCustos = (atualHistorico.custos / atualHistorico.receitas) * 100;
+  if (pctCustos >= 60) {
+    alertasHistorico.push(
+      `Custos estão em ${pctCustos.toFixed(1)}% da receita em ${formatCompetenciaLabel(
+        atualHistorico.mes
+      )}.`
+    );
+  }
+}
 
   return (
     <main className="min-h-screen bg-zinc-50">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
+        <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+  <div className="mb-5">
+    <h2 className="text-lg font-semibold text-zinc-900">Fase 6 · Histórico e insights</h2>
+    <p className="text-sm text-zinc-500">
+      Visão dos últimos 12 meses da renda variável com tendências e alertas.
+    </p>
+  </div>
+
+  <div className="grid gap-3 md:grid-cols-4">
+    <div className="rounded-2xl bg-zinc-50 p-4">
+      <p className="text-xs uppercase tracking-wide text-zinc-500">Melhor mês</p>
+      <p className="mt-2 text-sm font-semibold text-zinc-900">
+        {melhorMes ? `${formatCompetenciaLabel(melhorMes.mes)} · R$ ${formatMoney(melhorMes.lucroLiquido)}` : "—"}
+      </p>
+    </div>
+    <div className="rounded-2xl bg-zinc-50 p-4">
+      <p className="text-xs uppercase tracking-wide text-zinc-500">Pior mês</p>
+      <p className="mt-2 text-sm font-semibold text-zinc-900">
+        {piorMes ? `${formatCompetenciaLabel(piorMes.mes)} · R$ ${formatMoney(piorMes.lucroLiquido)}` : "—"}
+      </p>
+    </div>
+    <div className="rounded-2xl bg-zinc-50 p-4">
+      <p className="text-xs uppercase tracking-wide text-zinc-500">Média lucro</p>
+      <p className="mt-2 text-sm font-semibold text-zinc-900">R$ {formatMoney(mediaLucro)}</p>
+    </div>
+    <div className="rounded-2xl bg-zinc-50 p-4">
+      <p className="text-xs uppercase tracking-wide text-zinc-500">Tendência (3x3)</p>
+      <p className={`mt-2 text-sm font-semibold ${tendencia >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+        {tendencia >= 0 ? "+" : "-"}R$ {formatMoney(Math.abs(tendencia))}
+      </p>
+    </div>
+  </div>
+
+  <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
+    <div className="grid grid-cols-5 bg-zinc-50 px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
+      <span>Mês</span>
+      <span className="text-right">Receitas</span>
+      <span className="text-right">Custos</span>
+      <span className="text-right">Transferências</span>
+      <span className="text-right">Lucro líquido</span>
+    </div>
+    <div className="divide-y divide-zinc-200 text-sm">
+      {serieMensal.map((m) => (
+        <div key={m.mes} className="grid grid-cols-5 px-4 py-3">
+          <span className="text-zinc-700">{formatCompetenciaLabel(m.mes)}</span>
+          <span className="text-right text-zinc-700">R$ {formatMoney(m.receitas + m.aportes)}</span>
+          <span className="text-right text-zinc-700">R$ {formatMoney(m.custos)}</span>
+          <span className="text-right text-zinc-700">R$ {formatMoney(m.transferencias)}</span>
+          <span className="text-right font-medium text-zinc-900">R$ {formatMoney(m.lucroLiquido)}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+
+  <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+    <p className="text-sm font-medium text-zinc-900">Alertas inteligentes</p>
+    {alertasHistorico.length === 0 ? (
+      <p className="mt-1 text-sm text-zinc-600">Sem alertas críticos no histórico recente.</p>
+    ) : (
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800">
+        {alertasHistorico.map((alerta) => (
+          <li key={alerta}>{alerta}</li>
+        ))}
+      </ul>
+    )}
+  </div>
+</section>
         <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-2">
