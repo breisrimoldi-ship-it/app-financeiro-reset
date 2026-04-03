@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
-import { parseTipoFromDescricao } from "./_lib/tipos";
+import { createClient } from "@/lib/supabase/server";
+import { TIPO_RV_LABEL, parseTipoFromDescricao,  type TipoRvLancamento, } from "./_lib/tipos";
 import {
   ArrowRightLeft,
   Plus,
@@ -15,7 +16,6 @@ import {
   Trash2,
   CalendarRange,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
 
 type LancamentoRow = {
   id: string;
@@ -68,15 +68,19 @@ function formatCompetenciaLabel(mes: string) {
   return `${mesNumero}/${ano}`;
 }
 
+type FiltroTipo = "todos" | TipoRvLancamento;
+
 type PageProps = {
   searchParams?: Promise<{
     mes?: string;
+    tipo?: FiltroTipo;
   }>;
 };
 
 export default async function RendaVariavelPage({ searchParams }: PageProps) {
   const resolvedSearchParams = (await searchParams) ?? {};
   const mesSelecionado = resolvedSearchParams.mes || getMesAtual();
+  const tipoSelecionado = resolvedSearchParams.tipo || "todos";
 
   const supabase = await createClient();
 
@@ -238,7 +242,7 @@ const mediaPorLancamento =
   projecaoMes,
 };
 
-  const lancamentos = listaRecentes.map((item) => ({
+ const lancamentosComTipo = listaRecentes.map((item) => ({
   id: item.id,
   data: item.data,
   descricao: item.descricao,
@@ -248,6 +252,11 @@ const mediaPorLancamento =
   custo: Number(item.custo_total ?? 0),
   lucro: Number(item.lucro_liquido ?? 0),
 }));
+
+const lancamentos =
+  tipoSelecionado === "todos"
+    ? lancamentosComTipo
+    : lancamentosComTipo.filter((item) => item.tipo === tipoSelecionado);
 
   return (
     <main className="min-h-screen bg-zinc-50">
@@ -593,13 +602,37 @@ const mediaPorLancamento =
               </p>
             </div>
 
-            <Link
-              href="/renda-variavel/novo"
-              className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
-            >
-              <Plus className="h-4 w-4" />
-              Novo
-            </Link>
+            <div className="flex items-center gap-2">
+  <form method="GET" className="flex items-center gap-2">
+    <input type="hidden" name="mes" value={mesSelecionado} />
+    <select
+      name="tipo"
+      defaultValue={tipoSelecionado}
+      className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
+    >
+      <option value="todos">Todos os tipos</option>
+      {Object.entries(TIPO_RV_LABEL).map(([value, label]) => (
+        <option key={value} value={value}>
+          {label}
+        </option>
+      ))}
+    </select>
+    <button
+      type="submit"
+      className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+    >
+      Filtrar
+    </button>
+  </form>
+
+  <Link
+    href="/renda-variavel/novo"
+    className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
+  >
+    <Plus className="h-4 w-4" />
+    Novo
+  </Link>
+</div>
           </div>
 
           {lancamentos.length === 0 ? (
@@ -642,9 +675,19 @@ const mediaPorLancamento =
                         {formatDate(item.data)}
                       </span>
 
-                      <span className="col-span-2 font-medium text-zinc-900">
-                        {item.descricao}
-                      </span>
+                      <div className="col-span-2">
+  <span className="font-medium text-zinc-900">{item.descricao}</span>
+  {item.tipo ? (
+  <span className="mt-2 inline-flex rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-700">
+    {TIPO_RV_LABEL[item.tipo]}
+  </span>
+) : null}
+  {item.tipo ? (
+    <span className="ml-2 inline-flex rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-700">
+      {TIPO_RV_LABEL[item.tipo]}
+    </span>
+  ) : null}
+</div>
 
                       <span className="text-zinc-600">{item.perfil}</span>
 
