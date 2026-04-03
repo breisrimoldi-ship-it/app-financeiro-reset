@@ -99,6 +99,7 @@ type PageProps = {
   searchParams?: Promise<{
     mes?: string;
     tipo?: FiltroTipo;
+    meta?: string;
   }>;
 };
 
@@ -106,6 +107,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   const resolvedSearchParams = (await searchParams) ?? {};
   const mesSelecionado = resolvedSearchParams.mes || getMesAtual();
   const tipoSelecionado = resolvedSearchParams.tipo || "todos";
+  const metaParam = Number(resolvedSearchParams.meta ?? "");
 
   const supabase = await createClient();
 
@@ -338,6 +340,28 @@ const mediaPorLancamento =
   };
 
   const transferenciaAcimaDoSaldo = transferenciasTotaisMes > lucroLiquidoMes;
+  const metaMensal =
+  Number.isFinite(metaParam) && metaParam > 0
+    ? metaParam
+    : Math.max(lucroLiquidoMesAnterior, 0);
+
+const progressoMeta = metaMensal > 0 ? (lucroLiquidoMes / metaMensal) * 100 : 0;
+const faltaParaMeta = Math.max(metaMensal - lucroLiquidoMes, 0);
+const excedenteMeta = Math.max(lucroLiquidoMes - metaMensal, 0);
+
+const diasRestantes = isMesAtual ? Math.max(ultimoDiaDoMes - diaAtual, 0) : 0;
+const ritmoDiarioNecessario = diasRestantes > 0 ? faltaParaMeta / diasRestantes : 0;
+
+const saldoLiquidoAposTransferencias = Math.max(
+  lucroLiquidoMes - transferenciasTotaisMes,
+  0
+);
+
+const reservaSugerida = saldoLiquidoAposTransferencias * 0.2;
+const transferenciaSeguraSugerida = Math.max(
+  saldoLiquidoAposTransferencias - reservaSugerida,
+  0
+);
 
 
  const lancamentosComTipo = listaRecentes.map((item) => ({
@@ -797,6 +821,133 @@ const lancamentos =
             </div>
           </section>
         ) : null}
+
+        <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+  <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+    <div className="mb-5 flex items-start justify-between gap-4">
+      <div>
+        <h2 className="text-lg font-semibold text-zinc-900">
+          Fase 5 · Meta e ritmo do mês
+        </h2>
+        <p className="text-sm text-zinc-500">
+          Defina uma meta de lucro líquido para {formatCompetenciaLabel(mesSelecionado)} e acompanhe o ritmo.
+        </p>
+      </div>
+      <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
+        <TrendingUp className="h-4 w-4" />
+      </div>
+    </div>
+
+    <form method="GET" className="mb-4 grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 md:grid-cols-[1fr_auto] md:items-end">
+      <input type="hidden" name="mes" value={mesSelecionado} />
+      <input type="hidden" name="tipo" value={tipoSelecionado} />
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Meta de lucro líquido
+        </span>
+        <input
+          type="number"
+          name="meta"
+          min="0"
+          step="0.01"
+          defaultValue={metaMensal > 0 ? metaMensal.toFixed(2) : ""}
+          placeholder="Ex.: 8000"
+          className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-zinc-400"
+        />
+      </label>
+      <button
+        type="submit"
+        className="h-11 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
+      >
+        Atualizar meta
+      </button>
+    </form>
+
+    <div className="grid gap-3 md:grid-cols-3">
+      <div className="rounded-2xl bg-zinc-50 p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Progresso da meta
+        </p>
+        <p className="mt-2 text-xl font-semibold text-zinc-900">
+          {progressoMeta.toFixed(1)}%
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          R$ {formatMoney(lucroLiquidoMes)} de R$ {formatMoney(metaMensal)}
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-zinc-50 p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Falta para meta
+        </p>
+        <p className="mt-2 text-xl font-semibold text-zinc-900">
+          R$ {formatMoney(faltaParaMeta)}
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          {faltaParaMeta > 0 ? "Valor restante para bater a meta" : "Meta atingida no período"}
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-zinc-50 p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Ritmo diário necessário
+        </p>
+        <p className="mt-2 text-xl font-semibold text-zinc-900">
+          R$ {formatMoney(ritmoDiarioNecessario)}
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          {diasRestantes > 0
+            ? `Com ${diasRestantes} dia(s) restantes`
+            : "Sem dias restantes no mês selecionado"}
+        </p>
+      </div>
+    </div>
+
+    {excedenteMeta > 0 ? (
+      <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
+        Excelente: você está R$ {formatMoney(excedenteMeta)} acima da meta dessa competência.
+      </div>
+    ) : null}
+  </div>
+
+  <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+    <div className="mb-5">
+      <h2 className="text-lg font-semibold text-zinc-900">
+        Planejamento de transferência
+      </h2>
+      <p className="text-sm text-zinc-500">
+        Sugestão automática para transferir com reserva de segurança.
+      </p>
+    </div>
+
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-zinc-50 p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Saldo líquido após transferências
+        </p>
+        <p className="mt-2 text-xl font-semibold text-zinc-900">
+          R$ {formatMoney(saldoLiquidoAposTransferencias)}
+        </p>
+      </div>
+      <div className="rounded-2xl bg-zinc-50 p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Reserva sugerida (20%)
+        </p>
+        <p className="mt-2 text-xl font-semibold text-zinc-900">
+          R$ {formatMoney(reservaSugerida)}
+        </p>
+      </div>
+      <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+          Máximo sugerido para nova transferência
+        </p>
+        <p className="mt-2 text-xl font-semibold text-emerald-900">
+          R$ {formatMoney(transferenciaSeguraSugerida)}
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
 
 
         <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
