@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { TIPO_RV_LABEL, parseTipoFromDescricao,  type TipoRvLancamento, } from "./_lib/tipos";
 import {
   ArrowRightLeft,
+  AlertTriangle,
   Plus,
   Settings2,
   Wallet,
@@ -68,6 +69,30 @@ function formatCompetenciaLabel(mes: string) {
   return `${mesNumero}/${ano}`;
 }
 
+function getMesAnterior(mes: string) {
+  const [ano, mesNumero] = mes.split("-").map(Number);
+
+  if (!ano || !mesNumero) return getMesAtual();
+
+  const referencia = new Date(ano, mesNumero - 1, 1);
+  referencia.setMonth(referencia.getMonth() - 1);
+
+  return `${referencia.getFullYear()}-${String(referencia.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatDelta(valorAtual: number, valorAnterior: number) {
+  const diferenca = valorAtual - valorAnterior;
+  const base = Math.abs(valorAnterior);
+  const percentual = base > 0 ? (diferenca / base) * 100 : null;
+
+  return {
+    diferenca,
+    percentual,
+    isPositivo: diferenca >= 0,
+  };
+}
+
+
 type FiltroTipo = "todos" | TipoRvLancamento;
 
 type PageProps = {
@@ -122,6 +147,8 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   }
 
   const { inicioStr, fimStr } = getRangeFromMes(mesSelecionado);
+  const mesAnterior = getMesAnterior(mesSelecionado);
+  const { inicioStr: inicioAnterior, fimStr: fimAnterior } = getRangeFromMes(mesAnterior);
 
   const { data: lancamentosMes, error: erroMes } = await supabase
     .from("rv_lancamentos")
@@ -137,6 +164,17 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
     throw new Error(erroMes.message);
   }
 
+    const { data: lancamentosMesAnterior, error: erroMesAnterior } = await supabase
+    .from("rv_lancamentos")
+    .select("descricao, valor_recebido, custo_total")
+    .eq("user_id", user.id)
+    .gte("data", inicioAnterior)
+    .lte("data", fimAnterior);
+
+  if (erroMesAnterior) {
+    throw new Error(erroMesAnterior.message);
+  }
+
   const { data: transferenciasMes, error: erroTransferencias } = await supabase
     .from("rv_transferencias")
     .select("valor")
@@ -147,6 +185,18 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   if (erroTransferencias) {
     throw new Error(erroTransferencias.message);
   }
+
+    const { data: transferenciasMesAnterior, error: erroTransferenciasAnterior } = await supabase
+    .from("rv_transferencias")
+    .select("valor")
+    .eq("user_id", user.id)
+    .gte("data_transferencia", inicioAnterior)
+    .lte("data_transferencia", fimAnterior);
+
+  if (erroTransferenciasAnterior) {
+    throw new Error(erroTransferenciasAnterior.message);
+  }
+
 
   const { data: lancamentosRecentes, error: erroRecentes } = await supabase
     .from("rv_lancamentos")
@@ -162,8 +212,13 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   }
 
   const listaMes = (lancamentosMes ?? []) as LancamentoRow[];
+  const listaMesAnterior = (lancamentosMesAnterior ?? []) as Pick<
+    LancamentoRow,
+    "descricao" | "valor_recebido" | "custo_total"
+  >[];
   const listaRecentes = (lancamentosRecentes ?? []) as LancamentoRow[];
   const listaTransferencias = (transferenciasMes ?? []) as TransferenciaRow[];
+  const listaTransferenciasMesAnterior = (transferenciasMesAnterior ?? []) as TransferenciaRow[];
 
   const transferidoMesLegado = listaTransferencias.reduce(
   (acc, item) => acc + Number(item.valor ?? 0),
@@ -177,6 +232,14 @@ const totais = {
   transferencias: 0,
 };
 
+const totaisMesAnterior = {
+  receitas: 0,
+  aportes: 0,
+  custos: 0,
+  transferencias: 0,
+};
+
+
 for (const item of listaMes) {
   const tipo = parseTipoFromDescricao(item.descricao ?? "");
   const recebido = Number(item.valor_recebido ?? 0);
@@ -188,8 +251,32 @@ for (const item of listaMes) {
   else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") totais.custos += custo;
 }
 
-  const lucroLiquidoMes =
+  for (const item of listaMesAnterior) {
+  const tipo = parseTipoFromDescricao(item.descricao ?? "");
+  const recebido = Number(item.valor_recebido ?? 0);
+  const custo = Number(item.custo_total ?? 0);
+
+  if (tipo === "receita_bruta") totaisMesAnterior.receitas += recebido;
+  else if (tipo === "aporte_cpf_para_pj") totaisMesAnterior.aportes += recebido;
+  else if (tipo === "transferencia_para_cpf") totaisMesAnterior.transferencias += custo;
+  else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") totaisMesAnterior.custos += custo;
+}
+
+const lucroLiquidoMes =
   totais.receitas + totais.aportes - totais.custos - totais.transferencias;
+    const transferidoMesAnteriorLegado = listaTransferenciasMesAnterior.reduce(
+    (acc, item) => acc + Number(item.valor ?? 0),
+    0
+  );
+  const lucroLiquidoMesAnterior =
+    totaisMesAnterior.receitas +
+    totaisMesAnterior.aportes -
+    totaisMesAnterior.custos -
+    totaisMesAnterior.transferencias;
+  const transferenciasTotaisMes =
+    totais.transferencias + transferidoMesLegado;
+  const transferenciasTotaisMesAnterior =
+    totaisMesAnterior.transferencias + transferidoMesAnteriorLegado;
 
 const mediaPorLancamento =
   listaMes.length > 0 ? lucroLiquidoMes / listaMes.length : 0;
@@ -235,12 +322,23 @@ const mediaPorLancamento =
   aportesMes: totais.aportes,
   custosMes: totais.custos,
   lucroLiquidoMes,
-  transferidoMes: totais.transferencias + transferidoMesLegado,
+  transferidoMes: transferenciasTotaisMes,
   totalHorasEstimadas,
   mediaPorLancamento,
   lucroPorHora,
   projecaoMes,
 };
+
+  const comparativo = {
+    receitas: formatDelta(totais.receitas, totaisMesAnterior.receitas),
+    aportes: formatDelta(totais.aportes, totaisMesAnterior.aportes),
+    custos: formatDelta(totais.custos, totaisMesAnterior.custos),
+    transferencias: formatDelta(transferenciasTotaisMes, transferenciasTotaisMesAnterior),
+    lucroLiquido: formatDelta(lucroLiquidoMes, lucroLiquidoMesAnterior),
+  };
+
+  const transferenciaAcimaDoSaldo = transferenciasTotaisMes > lucroLiquidoMes;
+
 
  const lancamentosComTipo = listaRecentes.map((item) => ({
   id: item.id,
@@ -591,6 +689,116 @@ const lancamentos =
           </div>
         </section>
 
+         <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  Fechamento mensal
+                </h2>
+                <p className="text-sm text-zinc-500">
+                  Resumo consolidado de {formatCompetenciaLabel(mesSelecionado)} por tipo de movimentação.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
+                <CalendarRange className="h-4 w-4" />
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-zinc-200">
+              <div className="grid grid-cols-[2fr_1fr] bg-zinc-50 px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <span>Categoria</span>
+                <span className="text-right">Valor</span>
+              </div>
+              <div className="divide-y divide-zinc-200 text-sm">
+                <div className="grid grid-cols-[2fr_1fr] px-4 py-3">
+                  <span className="text-zinc-600">Receitas</span>
+                  <span className="text-right font-medium text-zinc-900">R$ {formatMoney(totais.receitas)}</span>
+                </div>
+                <div className="grid grid-cols-[2fr_1fr] px-4 py-3">
+                  <span className="text-zinc-600">Aportes</span>
+                  <span className="text-right font-medium text-zinc-900">R$ {formatMoney(totais.aportes)}</span>
+                </div>
+                <div className="grid grid-cols-[2fr_1fr] px-4 py-3">
+                  <span className="text-zinc-600">Custos + taxas</span>
+                  <span className="text-right font-medium text-zinc-900">R$ {formatMoney(totais.custos)}</span>
+                </div>
+                <div className="grid grid-cols-[2fr_1fr] px-4 py-3">
+                  <span className="text-zinc-600">Transferências</span>
+                  <span className="text-right font-medium text-zinc-900">R$ {formatMoney(transferenciasTotaisMes)}</span>
+                </div>
+                <div className="grid grid-cols-[2fr_1fr] bg-zinc-50 px-4 py-3">
+                  <span className="font-semibold text-zinc-900">Resultado líquido</span>
+                  <span className="text-right font-semibold text-zinc-900">R$ {formatMoney(lucroLiquidoMes)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-lg font-semibold text-zinc-900">
+                Mês atual × mês anterior
+              </h2>
+              <p className="text-sm text-zinc-500">
+                Comparativo entre {formatCompetenciaLabel(mesSelecionado)} e {formatCompetenciaLabel(mesAnterior)}.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                { label: "Receitas", delta: comparativo.receitas },
+                { label: "Aportes", delta: comparativo.aportes },
+                { label: "Custos + taxas", delta: comparativo.custos },
+                { label: "Transferências", delta: comparativo.transferencias },
+                { label: "Resultado líquido", delta: comparativo.lucroLiquido },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3"
+                >
+                  <span className="text-sm text-zinc-700">{item.label}</span>
+                  <div className="text-right">
+                    <p
+                      className={`text-sm font-semibold ${
+                        item.delta.isPositivo ? "text-emerald-700" : "text-red-700"
+                      }`}
+                    >
+                      {item.delta.isPositivo ? "+" : "-"}R$ {formatMoney(Math.abs(item.delta.diferenca))}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {item.delta.percentual === null
+                        ? "Sem base no mês anterior"
+                        : `${item.delta.percentual >= 0 ? "+" : ""}${item.delta.percentual.toFixed(1)}%`}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {transferenciaAcimaDoSaldo ? (
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-amber-100 p-2 text-amber-700">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-amber-900">
+                  Alerta de inconsistência
+                </h2>
+                <p className="mt-1 text-sm text-amber-800">
+                  As transferências do período ({formatMoney(transferenciasTotaisMes)}) estão
+                  maiores que o resultado líquido ({formatMoney(lucroLiquidoMes)}). Revise os
+                  lançamentos para garantir que não houve duplicidade ou classificação incorreta.
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+
         <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
@@ -677,11 +885,6 @@ const lancamentos =
 
                       <div className="col-span-2">
   <span className="font-medium text-zinc-900">{item.descricao}</span>
-  {item.tipo ? (
-  <span className="mt-2 inline-flex rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-700">
-    {TIPO_RV_LABEL[item.tipo]}
-  </span>
-) : null}
   {item.tipo ? (
     <span className="ml-2 inline-flex rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-700">
       {TIPO_RV_LABEL[item.tipo]}
