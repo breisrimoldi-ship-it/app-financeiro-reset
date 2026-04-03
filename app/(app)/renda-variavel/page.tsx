@@ -67,6 +67,11 @@ function formatDate(value: string) {
   return `${dia}/${mes}/${ano}`;
 }
 
+function stripTipoPrefix(descricao: string) {
+  if (!descricao) return "";
+  return descricao.replace(/^\[(.+?)\]\s*/, "").trim();
+}
+
 function getMesAtual() {
   const agora = new Date();
   return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
@@ -252,7 +257,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
     )
     .eq("user_id", user.id)
     .order("data", { ascending: false })
-    .limit(10);
+    .limit(50);
 
   if (erroRecentes) {
     throw new Error(erroRecentes.message);
@@ -434,10 +439,10 @@ const transferenciaSeguraSugerida = Math.max(
 );
 
 
- const lancamentosComTipo = listaRecentes.map((item) => ({
+const lancamentosComTipo = listaRecentes.map((item) => ({
   id: item.id,
   data: item.data,
-  descricao: item.descricao,
+  descricao: stripTipoPrefix(item.descricao ?? ""),
   tipo: parseTipoFromDescricao(item.descricao ?? ""),
   perfil: item.perfil ?? "—",
   recebido: Number(item.valor_recebido ?? 0),
@@ -641,11 +646,19 @@ if (atualHistorico && atualHistorico.receitas > 0) {
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/renda-variavel/novo"
+                 href="/renda-variavel/novo?tipo=receita_bruta"
                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-800"
               >
                 <Plus className="h-4 w-4" />
-                Novo lançamento
+                Nova receita
+              </Link>
+
+              <Link
+                href="/renda-variavel/novo?tipo=despesa_operacional"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
+              >
+                <Plus className="h-4 w-4" />
+                Novo custo / taxa
               </Link>
 
               <Link
@@ -1063,7 +1076,7 @@ if (atualHistorico && atualHistorico.receitas > 0) {
     <div className="mb-5 flex items-start justify-between gap-4">
       <div>
         <h2 className="text-lg font-semibold text-zinc-900">
-          Fase 5 · Meta e ritmo do mês
+          Meta e ritmo do mês
         </h2>
         <p className="text-sm text-zinc-500">
           Defina uma meta de lucro líquido para {formatCompetenciaLabel(mesSelecionado)} e acompanhe o ritmo.
