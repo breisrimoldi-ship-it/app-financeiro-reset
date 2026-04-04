@@ -267,7 +267,6 @@ export default function PerfilPage() {
           sobrenome,
         });
       } catch (error) {
-        console.error(error);
         setErroPerfil("Não foi possível carregar os dados do perfil.");
       } finally {
         setLoading(false);
@@ -311,7 +310,6 @@ export default function PerfilPage() {
       setSucessoPerfil("Perfil atualizado com sucesso.");
       router.refresh();
     } catch (error) {
-      console.error(error);
       setErroPerfil("Erro ao atualizar perfil.");
     } finally {
       setSavingPerfil(false);
@@ -357,7 +355,6 @@ export default function PerfilPage() {
 
       setSucessoSenha("Senha atualizada com sucesso.");
     } catch (error) {
-      console.error(error);
       setErroSenha("Erro ao atualizar senha.");
     } finally {
       setSavingSenha(false);
@@ -386,7 +383,6 @@ export default function PerfilPage() {
       router.push("/login");
       router.refresh();
     } catch (error) {
-      console.error(error);
       setErroExcluir("Erro ao excluir a conta.");
     } finally {
       setDeletingConta(false);

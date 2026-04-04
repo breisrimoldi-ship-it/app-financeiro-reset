@@ -228,7 +228,6 @@ export default function MovimentacoesPage() {
       .upsert(payload, { onConflict: "user_id,tipo,slug" });
 
     if (error) {
-      console.error("Erro ao semear categorias padrão:", error);
       throw error;
     }
   }, []);
@@ -242,7 +241,6 @@ export default function MovimentacoesPage() {
     } = await supabase.auth.getUser();
 
     if (userError) {
-      console.error("Erro ao buscar usuário:", userError);
       setLoadingCategorias(false);
       return;
     }
@@ -262,7 +260,6 @@ export default function MovimentacoesPage() {
       .order("nome", { ascending: true });
 
     if (categoriasError) {
-      console.error("Erro ao carregar categorias:", categoriasError);
       alert("Erro ao carregar categorias.");
       setLoadingCategorias(false);
       return;
@@ -281,7 +278,6 @@ export default function MovimentacoesPage() {
         .order("nome", { ascending: true });
 
       if (secondLoad.error) {
-        console.error("Erro ao recarregar categorias:", secondLoad.error);
         alert("Erro ao carregar categorias.");
         setLoadingCategorias(false);
         return;
@@ -322,7 +318,6 @@ export default function MovimentacoesPage() {
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("Erro ao carregar movimentações:", error);
       alert("Erro ao carregar movimentações do Supabase.");
       return;
     }
@@ -337,7 +332,6 @@ export default function MovimentacoesPage() {
       .order("id", { ascending: true });
 
     if (error) {
-      console.error("Erro ao carregar cartões:", error);
       alert("Erro ao carregar cartões do Supabase.");
       return;
     }
@@ -482,7 +476,6 @@ export default function MovimentacoesPage() {
     });
 
     if (error) {
-      console.error("Erro ao criar categoria:", error);
       alert("Erro ao criar categoria.");
       return;
     }
@@ -523,7 +516,6 @@ export default function MovimentacoesPage() {
       .eq("id", editingCategoriaId);
 
     if (error) {
-      console.error("Erro ao editar categoria:", error);
       alert("Erro ao editar categoria.");
       return;
     }
@@ -551,7 +543,6 @@ export default function MovimentacoesPage() {
       .eq("id", categoria.id);
 
     if (error) {
-      console.error("Erro ao desativar categoria:", error);
       alert("Erro ao excluir categoria.");
       return;
     }
@@ -591,7 +582,6 @@ async function handleDelete(id: number) {
   );
 
   if (error?.message) {
-    console.error("Erro ao excluir movimentação:", error.message);
     alert(`Erro ao excluir movimentação:\n${error.message}`);
     return;
   }
@@ -682,7 +672,6 @@ async function handleDelete(id: number) {
         .single();
 
       if (error) {
-        console.error("Erro ao atualizar movimentação:", error);
         alert("Erro ao atualizar movimentação.");
         return;
       }
@@ -702,7 +691,6 @@ async function handleDelete(id: number) {
       .single();
 
     if (error) {
-      console.error("Erro ao salvar movimentação:", error);
       alert("Erro ao salvar movimentação.");
       return;
     }

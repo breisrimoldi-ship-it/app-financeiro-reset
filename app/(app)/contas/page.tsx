@@ -699,7 +699,6 @@ useEffect(() => {
         .eq("id", editandoId);
 
       if (error) {
-        console.error("Erro ao atualizar conta:", error);
         setErro(`Erro ao atualizar conta: ${error.message}`);
         setSalvando(false);
         return;
@@ -708,7 +707,6 @@ useEffect(() => {
       const { error } = await supabase.from("contas_fixas").insert(payload);
 
       if (error) {
-        console.error("Erro ao cadastrar conta:", error);
         setErro(`Erro ao cadastrar conta: ${error.message}`);
         setSalvando(false);
         return;
@@ -728,7 +726,6 @@ useEffect(() => {
       .eq("id", conta.id);
 
     if (error) {
-      console.error("Erro ao alterar status:", error);
       alert(`Erro ao alterar status: ${error.message}`);
       return;
     }
@@ -749,7 +746,6 @@ useEffect(() => {
       .eq("id", conta.id);
 
     if (error) {
-      console.error("Erro ao excluir conta:", error);
       alert(`Erro ao excluir conta: ${error.message}`);
       return;
     }
@@ -788,7 +784,6 @@ useEffect(() => {
           .single();
 
         if (error) {
-          console.error("Erro ao atualizar pagamento:", error);
           alert(`Erro ao pagar conta: ${error.message}`);
           return;
         }
@@ -813,7 +808,6 @@ useEffect(() => {
           .single();
 
         if (error) {
-          console.error("Erro ao registrar pagamento:", error);
           alert(`Erro ao pagar conta: ${error.message}`);
           return;
         }
@@ -855,7 +849,6 @@ useEffect(() => {
         .single();
 
       if (error) {
-        console.error("Erro ao desfazer pagamento:", error);
         alert(`Erro ao desfazer pagamento: ${error.message}`);
         return;
       }

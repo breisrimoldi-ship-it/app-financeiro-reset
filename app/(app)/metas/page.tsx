@@ -462,7 +462,6 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
       setMetas((metasData ?? []) as MetaRow[]);
       setAportes((aportesData ?? []) as MetaAporteRow[]);
     } catch (e) {
-      console.error(e);
       setErro("Não foi possível carregar suas metas agora.");
     } finally {
       setLoading(false);
@@ -720,7 +719,6 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
       setMetaForm(getMetaFormInicial());
       await carregarDados();
     } catch (e) {
-      console.error(e);
       setErro("Não foi possível salvar a meta.");
     } finally {
       setSavingMeta(false);
@@ -746,7 +744,6 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
 
       await carregarDados();
     } catch (e) {
-      console.error(e);
       setErro("Não foi possível excluir a meta.");
     }
   }
@@ -770,7 +767,6 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
 
       await carregarDados();
     } catch (e) {
-      console.error(e);
       setErro("Não foi possível atualizar o status da meta.");
     }
   }
@@ -846,7 +842,6 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
 
     await carregarDados();
   } catch (e) {
-    console.error(e);
     setErro("Não foi possível salvar o lançamento da meta.");
   } finally {
     setSavingAporte(false);
@@ -869,7 +864,6 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
 
       await carregarDados();
     } catch (e) {
-      console.error(e);
       setErro("Não foi possível excluir o lançamento.");
     }
   }
@@ -947,7 +941,6 @@ async function confirmarAporteInteligente() {
 
     await carregarDados();
   } catch (e) {
-    console.error(e);
     setErro("Não foi possível executar o aporte inteligente.");
   } finally {
     setSavingAporteInteligente(false);

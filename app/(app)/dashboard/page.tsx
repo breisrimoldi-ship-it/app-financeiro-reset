@@ -1590,7 +1590,6 @@ export default function DashboardPage() {
     } = await supabase.auth.getUser();
 
     if (authError) {
-      console.error("Erro auth:", authError);
       setCarregando(false);
       return;
     }
@@ -1638,17 +1637,7 @@ export default function DashboardPage() {
       supabase.from("pagamentos_contas").select("*"),
     ]);
 
-    if (movimentacoesError) console.error("Erro movimentações:", movimentacoesError);
-    if (faturasPagamentoError) console.error("Erro faturas_pagamento:", faturasPagamentoError);
-    if (cartoesError) console.error("Erro cartoes:", cartoesError);
-    if (contasError) console.error("Erro contas_fixas:", contasError);
-    if (pagamentosContasError) {
-      console.error("Erro pagamentos_contas:", pagamentosContasError);
-    }
-    if (metaAportesError) console.error("Erro meta_aportes:", metaAportesError);
-
     if (metasError || metaAportesError) {
-      console.warn("Aviso metas:", metasError || metaAportesError);
       setMetasResumo({
         totalGuardado: 0,
         quantidadeAtivas: 0,
@@ -2197,7 +2186,6 @@ for (const conta of contasAtivas) {
         .single();
 
       if (aporteError || !aporteCriado) {
-        console.error("Erro ao registrar aporte:", aporteError);
         alert("Não foi possível registrar o aporte na meta.");
         return;
       }
@@ -2219,7 +2207,6 @@ for (const conta of contasAtivas) {
         });
 
       if (movimentacaoError) {
-        console.error("Erro ao registrar despesa da meta:", movimentacaoError);
         await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
         alert(
           `Erro ao registrar despesa da meta:\n${
@@ -2267,7 +2254,6 @@ for (const conta of contasAtivas) {
     );
 
     if (error) {
-      console.error("Erro ao pagar conta:", error);
       alert(`Erro ao pagar conta: ${error.message}`);
       return;
     }
@@ -2355,7 +2341,6 @@ for (const conta of contasAtivas) {
     const { error } = await supabase.from("movimentacoes").insert(payload);
 
     if (error) {
-      console.error("Erro ao salvar movimentação:", error);
       alert("Erro ao salvar movimentação.");
       setSavingAction(false);
       return;

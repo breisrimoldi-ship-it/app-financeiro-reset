@@ -145,21 +145,18 @@ export default function CartoesPage() {
     ]);
 
     if (cartoesError) {
-      console.error("Erro ao buscar cartões:", cartoesError);
       alert("Erro ao carregar cartões.");
       if (showLoading) setLoading(false);
       return;
     }
 
     if (movimentacoesError) {
-      console.error("Erro ao buscar movimentações de cartão:", movimentacoesError);
       alert("Erro ao carregar despesas dos cartões.");
       if (showLoading) setLoading(false);
       return;
     }
 
     if (pagamentosError) {
-      console.error("Erro ao buscar pagamentos:", pagamentosError);
       alert("Erro ao carregar pagamentos das faturas.");
       if (showLoading) setLoading(false);
       return;
@@ -242,14 +239,6 @@ export default function CartoesPage() {
     const { error } = await supabase.from("cartoes").delete().eq("id", id);
 
     if (error) {
-      console.error("Erro ao excluir cartão:", {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-        full: error,
-      });
-
       alert(
         `Erro ao excluir cartão:
 ${error.message ?? "sem mensagem"}
@@ -311,14 +300,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         .eq("id", idEmEdicao);
 
       if (error) {
-        console.error("Erro ao salvar cartão:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-          full: error,
-        });
-
         alert(
           `Erro ao salvar cartão:
 ${error.message ?? "sem mensagem"}
@@ -336,7 +317,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
     const { error } = await supabase.from("cartoes").insert([payload]);
 
     if (error) {
-      console.error("Erro ao salvar cartão:", error);
       alert("Erro ao salvar cartão.");
       return;
     }
@@ -432,7 +412,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
           .single();
 
         if (error) {
-          console.error("Erro ao atualizar pagamento:", error);
           alert("Erro ao atualizar pagamento da fatura.");
           return;
         }
@@ -466,7 +445,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         .single();
 
       if (error) {
-        console.error("Erro ao registrar pagamento:", error);
         alert("Erro ao registrar pagamento da fatura.");
         return;
       }
@@ -524,7 +502,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         .single();
 
       if (error) {
-        console.error("Erro ao desfazer pagamento:", error);
         alert("Erro ao desfazer pagamento da fatura.");
         return;
       }
@@ -609,7 +586,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
       const { error } = await supabase.from("movimentacoes").insert(registros);
 
       if (error) {
-        console.error("Erro ao salvar saldo inicial:", error);
         alert("Erro ao salvar saldo inicial.");
         return;
       }

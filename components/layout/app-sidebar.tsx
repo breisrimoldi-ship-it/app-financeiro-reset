@@ -70,7 +70,7 @@ export function AppSidebar({
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-72 flex-col border-r border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-5 py-5">
-        <p className="text-lg font-semibold text-slate-900">Auren</p>
+        <p className="text-lg font-semibold text-slate-900">AuriaFin</p>
         <p className="mt-2 text-sm font-medium text-slate-800">
           {nomeUsuario}
         </p>

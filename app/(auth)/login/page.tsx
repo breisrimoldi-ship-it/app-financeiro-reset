@@ -49,7 +49,6 @@ export default function LoginPage() {
       router.push("/dashboard");
       router.refresh();
     } catch (error) {
-      console.error(error);
       setErro("Erro ao fazer login.");
     } finally {
       setLoading(false);
@@ -111,7 +110,6 @@ export default function LoginPage() {
       setSenha("");
       setConfirmarSenha("");
     } catch (error) {
-      console.error(error);
       setErro("Erro ao criar conta.");
     } finally {
       setLoading(false);
@@ -125,7 +123,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="mb-8">
           <p className="text-sm font-medium uppercase tracking-[0.18em] text-slate-500">
-            Auren
+            AuriaFin
           </p>
 
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">
