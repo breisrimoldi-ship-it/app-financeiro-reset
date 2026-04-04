@@ -4,1524 +4,67 @@ import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ModalResumoDashboard } from "./_components/modal-resumo-dashboard";
 import { InteligenciaMesSection } from "./_components/inteligencia-mes-section";
-import { createClient } from "../../../lib/supabase/client";
 import { ResumoCards, type ResumoCardAtivo } from "./_components/resumo-cards";
+import { MiniBarChart } from "./_components/mini-bar-chart";
+import { DashboardSkeleton } from "./_components/dashboard-skeleton";
+import { ModalLancamentoDashboard } from "./_components/modal-lancamento-dashboard";
+import { createClient } from "../../../lib/supabase/client";
 import {
   CalendarDays,
   CreditCard,
   Plus,
   Target,
-  X,
 } from "lucide-react";
+import { normalizarNumero } from "@/lib/finance/format";
+
+import type {
+  FormType,
+  Movimentacao,
+  FaturaPagamento,
+  Cartao,
+  ContaFixaDashboard,
+  PagamentoContaDashboard,
+  ResumoCartao,
+  ChartPoint,
+  MetasSnapshot,
+  MetaPlanoRadar,
+  CardAtivo,
+  ModalLancamentoItem,
+  ActionFormData,
+  RecomendacaoAcao,
+  MetaRecord,
+  MetaAporteRecord,
+} from "./_lib/types";
+
 import {
-  getCategoryLabel,
-  getCategoryOptions,
-} from "@/lib/finance/categories";
-import { getHojeISO, getMesAtualISO } from "@/lib/finance/date";
-import { formatarMoedaBRL, normalizarNumero } from "@/lib/finance/format";
+  getMesAtual,
+  getHoje,
+  getInitialActionForm,
+  formatarMoeda,
+  formatarMesExtenso,
+  adicionarMeses,
+  formatarMesCurto,
+  formatarCompetencia,
+  formatarData,
+  formatarTipoPagamento,
+  percentualSeguro,
+  getCardNome,
+  getCategoriaLabelSeguro,
+  calcularPrimeiraCobranca,
+  contaExisteNoMes,
+  contaEstaPendenteAteMes,
+  getStatusContaDashboard,
+  gerarSugestoesReceita,
+  calcularSnapshotDoMes,
+  formatarPrazoCurto,
+  calcularPlanoMeta,
+  gerarInsights,
+  gerarPrevisao,
+  calcularMetasSnapshotComAportes,
+  gerarRecomendacoes,
+} from "./_lib/utils";
+
 const supabase = createClient();
-
-type PaymentType = "pix_dinheiro" | "debito" | "credito";
-type FormType = "entrada" | "despesa";
-
-type Movimentacao = {
-  id: number;
-  created_at: string;
-  tipo: string | null;
-  descricao: string | null;
-  categoria: string | null;
-  valor: number | string | null;
-  data: string | null;
-  tipo_pagamento: string | null;
-  cartao_id: number | null;
-  parcelas: number | null;
-  primeira_cobranca: string | null;
-  meta_id?: string | null;
-  meta_aporte_id?: string | null;
-};
-
-type FaturaPagamento = {
-  id: number;
-  cartao_id: number;
-  mes_referencia: string;
-  valor_pago: number | string | null;
-  data_pagamento: string | null;
-  status: string | null;
-};
-
-type Cartao = {
-  id: number;
-  nome: string;
-  fechamento_dia: number | null;
-  vencimento_dia: number | null;
-  limite: number | string | null;
-};
-
-type ContaFixaDashboard = {
-  id: number;
-  descricao: string;
-  valor: number | string | null;
-  dia_vencimento: number | null;
-  categoria: string | null;
-  observacoes: string | null;
-  ativa: boolean;
-  user_id: string | null;
-  tipo_recorrencia: "indeterminada" | "temporaria";
-  inicio_cobranca: string | null;
-  fim_cobranca: string | null;
-  quantidade_meses: number | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type PagamentoContaDashboard = {
-  id: number;
-  origem_tipo: string | null;
-  origem_id: number | null;
-  mes_referencia: string | null;
-  valor_pago: number | string | null;
-  data_pagamento: string | null;
-  status: string | null;
-  observacoes: string | null;
-  user_id: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type ResumoCartao = {
-  id: number;
-  nome: string;
-  limite: number;
-  emAberto: number;
-};
-
-type ChartPoint = {
-  mes: string;
-  label: string;
-  entradas: number;
-  saidas: number;
-  saldo: number;
-};
-
-type MetaResumo = {
-  id?: string;
-  nome: string;
-  valorMeta: number;
-  valorAtual: number;
-  faltante: number;
-  percentual: number;
-  prazo: string | null;
-};
-
-type MetasSnapshot = {
-  totalGuardado: number;
-  quantidadeAtivas: number;
-  metaMaisProxima: MetaResumo | null;
-  metasOrdenadas: MetaResumo[];
-};
-
-type MetaPlanoRadar = {
-  id: string;
-  nome: string;
-  prazo: string | null;
-  faltante: number;
-  valorPorDia: number;
-  valorSugeridoHoje: number;
-  percentual: number;
-  prioridade: number;
-};
-
-type MonthSnapshot = {
-  saldoInicial: number;
-  entradas: number;
-  saidasPagas: number;
-  comprometidoMes: number;
-  comprometidoAtrasado: number;
-  comprometido: number;
-  saldoDisponivel: number;
-  adiantadas: number;
-  cartoesResumo: ResumoCartao[];
-};
-
-type CardAtivo =
-  | "entradas"
-  | "saidas"
-  | "comprometido"
-  | "adiantadas"
-  | "contas"
-  | null;
-
-type ModalLancamentoItem = {
-  id: string;
-  tipo: "entrada" | "despesa" | "fatura" | "adiantada" | "conta";
-  titulo: string;
-  categoria: string;
-  valor: number;
-  dataPrincipal: string;
-  pagamentoLabel?: string;
-  cartaoNome?: string;
-  competencia?: string;
-};
-
-type ActionFormData = {
-  descricao: string;
-  categoria: string;
-  valor: string;
-  data: string;
-  tipoPagamento: PaymentType;
-  cartaoId: string;
-  parcelas: string;
-  primeiraCobranca: string;
-};
-
-type RecomendacaoAcao = {
-  tipo: "guardar_meta";
-  valor: number;
-  metaId: string;
-  metaNome: string;
-};
-
-type RecomendacaoItem = {
-  tipo: "acao" | "alerta";
-  texto: string;
-  acao?: RecomendacaoAcao;
-};
-
-type MetaRecord = Record<string, unknown>;
-type MetaAporteRecord = Record<string, unknown>;
-
-function getMesAtual() {
-  return getMesAtualISO();
-}
-
-const getHoje = getHojeISO;
-
-function getInitialActionForm(): ActionFormData {
-  return {
-    descricao: "",
-    categoria: "",
-    valor: "",
-    data: getHojeISO(),
-    tipoPagamento: "pix_dinheiro",
-    cartaoId: "",
-    parcelas: "1",
-    primeiraCobranca: "",
-  };
-}
-
-const formatarMoeda = formatarMoedaBRL;
-
-function formatarMesExtenso(anoMes: string) {
-  const [ano, mes] = anoMes.split("-");
-  const nomes = [
-    "janeiro",
-    "fevereiro",
-    "março",
-    "abril",
-    "maio",
-    "junho",
-    "julho",
-    "agosto",
-    "setembro",
-    "outubro",
-    "novembro",
-    "dezembro",
-  ];
-  return `${nomes[Number(mes) - 1]} de ${ano}`;
-}
-
-function adicionarMeses(anoMes: string, quantidade: number) {
-  const [ano, mes] = anoMes.split("-").map(Number);
-  const data = new Date(ano, mes - 1 + quantidade, 1);
-  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function getStringCampo(meta: MetaRecord, campos: string[], fallback = "") {
-  for (const campo of campos) {
-    const valor = meta[campo];
-    if (typeof valor === "string" && valor.trim()) return valor.trim();
-  }
-  return fallback;
-}
-
-function getNumeroCampo(meta: MetaRecord, campos: string[], fallback = 0) {
-  for (const campo of campos) {
-    const valor = meta[campo];
-    if (typeof valor === "number") return valor;
-    if (
-      typeof valor === "string" &&
-      valor.trim() !== "" &&
-      !Number.isNaN(Number(valor))
-    ) {
-      return Number(valor);
-    }
-  }
-  return fallback;
-}
-
-function formatarMesCurto(anoMes: string) {
-  const [ano, mes] = anoMes.split("-");
-  const nomes = [
-    "jan",
-    "fev",
-    "mar",
-    "abr",
-    "mai",
-    "jun",
-    "jul",
-    "ago",
-    "set",
-    "out",
-    "nov",
-    "dez",
-  ];
-  return `${nomes[Number(mes) - 1]}/${ano.slice(2)}`;
-}
-
-function formatarCompetencia(valor: string) {
-  if (!valor) return "-";
-  const [ano, mes] = valor.split("-");
-  if (!ano || !mes) return valor;
-  return `${mes}/${ano}`;
-}
-
-function formatarData(data: string | null | undefined) {
-  if (!data) return "--/--/----";
-  const [ano, mes, dia] = data.split("-");
-  if (!ano || !mes || !dia) return data;
-  return `${dia}/${mes}/${ano}`;
-}
-
-function formatarTipoPagamento(tipo: string | null | undefined) {
-  const normalizado = (tipo ?? "").toLowerCase();
-  if (normalizado === "credito") return "Cartão de Crédito";
-  if (normalizado === "debito") return "Cartão de Débito";
-  if (normalizado === "pix_dinheiro") return "PIX / Dinheiro";
-  return "À vista";
-}
-
-function percentualSeguro(valor: number, total: number) {
-  if (total <= 0) return 0;
-  return Math.min((valor / total) * 100, 100);
-}
-
-function getCardNome(cartoes: Cartao[], cartaoId: number | null | undefined) {
-  if (!cartaoId) return "Cartão";
-  return cartoes.find((c) => c.id === cartaoId)?.nome ?? `Cartão ${cartaoId}`;
-}
-
-function getCategoriaLabelSeguro(categoria: string | null | undefined) {
-  if (!categoria) return "Sem categoria";
-  return getCategoryLabel(categoria);
-}
-
-function calcularPrimeiraCobranca(
-  dataCompra: string,
-  cartaoId: number,
-  cartoes: Cartao[]
-) {
-  const cartao = cartoes.find((item) => item.id === cartaoId);
-  if (!cartao || !dataCompra) return "";
-
-  const [ano, mes, dia] = dataCompra.split("-").map(Number);
-  if (!ano || !mes || !dia) return "";
-
-  let anoCobranca = ano;
-  let mesCobranca = mes;
-
-  if (dia > Number(cartao.fechamento_dia ?? 31)) {
-    if (mes === 12) {
-      anoCobranca = ano + 1;
-      mesCobranca = 1;
-    } else {
-      mesCobranca = mes + 1;
-    }
-  }
-
-  return `${anoCobranca}-${String(mesCobranca).padStart(2, "0")}`;
-}
-
-function getUltimoMesConta(conta: ContaFixaDashboard) {
-  if (!conta.inicio_cobranca) return null;
-
-  if (conta.tipo_recorrencia === "indeterminada") {
-    return null;
-  }
-
-  if (conta.fim_cobranca) {
-    return conta.fim_cobranca;
-  }
-
-  if (conta.quantidade_meses && conta.quantidade_meses > 0) {
-    return adicionarMeses(conta.inicio_cobranca, conta.quantidade_meses - 1);
-  }
-
-  return null;
-}
-
-function contaExisteNoMes(conta: ContaFixaDashboard, mesReferencia: string) {
-  if (!conta.inicio_cobranca) return false;
-
-  if (conta.inicio_cobranca > mesReferencia) {
-    return false;
-  }
-
-  if (conta.tipo_recorrencia === "indeterminada") {
-    return true;
-  }
-
-  const ultimoMes = getUltimoMesConta(conta);
-  if (!ultimoMes) return false;
-
-  return mesReferencia >= conta.inicio_cobranca && mesReferencia <= ultimoMes;
-}
-
-function contaEstaPendenteAteMes(
-  conta: ContaFixaDashboard,
-  mesReferencia: string,
-  pagamentosContas: PagamentoContaDashboard[]
-) {
-  if (conta.ativa === false) return false;
-  if (!conta.inicio_cobranca) return false;
-  if (conta.inicio_cobranca > mesReferencia) return false;
-
-  if (conta.tipo_recorrencia === "temporaria") {
-    const ultimoMes = getUltimoMesConta(conta);
-    if (ultimoMes && ultimoMes < mesReferencia) {
-      // ainda pode estar pendente se algum mês anterior não foi pago
-    }
-  }
-
-const competencias: string[] = [];
-
-  if (conta.tipo_recorrencia === "indeterminada") {
-    let atual = conta.inicio_cobranca;
-    while (atual <= mesReferencia) {
-      competencias.push(atual);
-      atual = adicionarMeses(atual, 1);
-    }
-  } else {
-    const ultimoMes = getUltimoMesConta(conta);
-    if (!ultimoMes) return false;
-
-    let atual = conta.inicio_cobranca;
-    while (atual <= mesReferencia && atual <= ultimoMes) {
-      competencias.push(atual);
-      atual = adicionarMeses(atual, 1);
-    }
-  }
-
-  return competencias.some((competencia) => {
-    const pagamento = pagamentosContas.find(
-      (item) =>
-        Number(item.origem_id) === conta.id &&
-        item.mes_referencia === competencia &&
-        (item.status ?? "").toLowerCase() === "paga"
-    );
-
-    return !pagamento;
-  });
-}
-
-function getDataVencimentoConta(
-  conta: ContaFixaDashboard,
-  mesReferencia: string
-) {
-  const dia = Math.min(Math.max(Number(conta.dia_vencimento || 1), 1), 31);
-  return `${mesReferencia}-${String(dia).padStart(2, "0")}`;
-}
-
-function getStatusContaDashboard(
-  conta: ContaFixaDashboard,
-  mesReferencia: string,
-  pagamentosContas: PagamentoContaDashboard[]
-) {
-  const pagamento = pagamentosContas.find(
-    (item) =>
-      Number(item.origem_id) === conta.id &&
-      item.mes_referencia === mesReferencia &&
-      (item.status ?? "").toLowerCase() === "paga"
-  );
-
-  if (pagamento) {
-    return {
-      status: "paga" as const,
-      dataVencimento: getDataVencimentoConta(conta, mesReferencia),
-      pagamento,
-    };
-  }
-
-  const hoje = getHoje();
-  const mesAtual = hoje.slice(0, 7);
-  const dataVencimento = getDataVencimentoConta(conta, mesReferencia);
-
-  if (mesReferencia < mesAtual) {
-    return {
-      status: "vencida" as const,
-      dataVencimento,
-      pagamento: null,
-    };
-  }
-
-  if (mesReferencia > mesAtual) {
-    return {
-      status: "futura" as const,
-      dataVencimento,
-      pagamento: null,
-    };
-  }
-
-  if (dataVencimento < hoje) {
-    return {
-      status: "vencida" as const,
-      dataVencimento,
-      pagamento: null,
-    };
-  }
-
-  if (dataVencimento === hoje) {
-    return {
-      status: "vence_hoje" as const,
-      dataVencimento,
-      pagamento: null,
-    };
-  }
-
-  const diffDias = Math.ceil(
-    (new Date(`${dataVencimento}T00:00:00`).getTime() -
-      new Date(`${hoje}T00:00:00`).getTime()) /
-      (1000 * 60 * 60 * 24)
-  );
-
-  if (diffDias >= 1 && diffDias <= 3) {
-    return {
-      status: "vence_breve" as const,
-      dataVencimento,
-      pagamento: null,
-    };
-  }
-
-  return {
-    status: "aberta" as const,
-    dataVencimento,
-    pagamento: null,
-  };
-}
-
-function MiniBarChart({ data }: { data: ChartPoint[] }) {
-  const maxValor = Math.max(
-    1,
-    ...data.flatMap((item) => [item.entradas, item.saidas, Math.abs(item.saldo)])
-  );
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
-        <div className="inline-flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          Entradas
-        </div>
-        <div className="inline-flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
-          Saídas
-        </div>
-      </div>
-
-      <div className="grid grid-cols-6 gap-3">
-        {data.map((item) => (
-          <div key={item.mes} className="flex flex-col items-center gap-3">
-            <div className="flex h-52 items-end gap-1.5">
-              <div
-                className="w-4 rounded-t-2xl bg-emerald-500/90 transition-all"
-                style={{
-                  height: `${(item.entradas / maxValor) * 100}%`,
-                  minHeight: item.entradas > 0 ? 10 : 0,
-                }}
-              />
-              <div
-                className="w-4 rounded-t-2xl bg-rose-500/90 transition-all"
-                style={{
-                  height: `${(item.saidas / maxValor) * 100}%`,
-                  minHeight: item.saidas > 0 ? 10 : 0,
-                }}
-              />
-            </div>
-
-            <div className="text-center">
-              <p className="text-xs font-medium text-zinc-700">{item.label}</p>
-              <p
-                className={`mt-1 text-[11px] font-medium ${
-                  item.saldo >= 0 ? "text-emerald-600" : "text-rose-600"
-                }`}
-              >
-                {formatarMoeda(item.saldo)}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function gerarSugestoesReceita({
-  saldoProjetado,
-  alertasContas,
-  metas,
-}: {
-  saldoProjetado: number;
-  alertasContas: {
-    vencidas: Array<{ conta: ContaFixaDashboard }>;
-    vencemHoje: Array<{ conta: ContaFixaDashboard }>;
-    vencemBreve: Array<{ conta: ContaFixaDashboard }>;
-    total: number;
-  };
-  metas: MetasSnapshot;
-}) {
-  const hoje = new Date();
-  const ultimoDiaMes = new Date(
-    hoje.getFullYear(),
-    hoje.getMonth() + 1,
-    0
-  ).getDate();
-
-  const diaAtual = hoje.getDate();
-  const diasRestantes = Math.max(ultimoDiaMes - diaAtual + 1, 1);
-
-  const totalVencidas = alertasContas.vencidas.reduce(
-    (acc, item) => acc + normalizarNumero(item.conta.valor),
-    0
-  );
-
-  const totalHoje = alertasContas.vencemHoje.reduce(
-    (acc, item) => acc + normalizarNumero(item.conta.valor),
-    0
-  );
-
-  const totalBreve = alertasContas.vencemBreve.reduce(
-    (acc, item) => acc + normalizarNumero(item.conta.valor),
-    0
-  );
-
-  const sugestoes: string[] = [];
-
-  if (totalVencidas > 0) {
-    sugestoes.push(
-      `Hoje você precisa gerar ${formatarMoeda(
-        totalVencidas
-      )} para cobrir suas contas vencidas.`
-    );
-  }
-
-  if (totalHoje > 0) {
-    sugestoes.push(
-      `Priorize pelo menos ${formatarMoeda(
-        totalHoje
-      )} hoje para não virar nova pendência.`
-    );
-  }
-
-  if (saldoProjetado < 0) {
-    const necessarioPorDia = Math.abs(saldoProjetado) / diasRestantes;
-
-    sugestoes.push(
-      `Se fizer ${formatarMoeda(
-        necessarioPorDia
-      )} por dia nos próximos ${diasRestantes} dia(s), você evita fechar o mês no negativo.`
-    );
-  }
-
-  if (totalBreve > 0) {
-    sugestoes.push(
-      `Você tem ${formatarMoeda(
-        totalBreve
-      )} vencendo em breve. Antecipar receita agora reduz pressão nos próximos dias.`
-    );
-  }
-
-  if (saldoProjetado > 0 && metas.metaMaisProxima) {
-    const valorMeta = Math.min(saldoProjetado, metas.metaMaisProxima.faltante);
-
-    sugestoes.push(
-      `Depois de cobrir o urgente, você pode direcionar até ${formatarMoeda(
-        valorMeta
-      )} para a meta "${metas.metaMaisProxima.nome}".`
-    );
-  }
-
-  if (sugestoes.length === 0) {
-    sugestoes.push("Hoje sua operação está estável. Mantenha o ritmo de receita.");
-  }
-
-  return sugestoes;
-}
-
-
-function calcularSaldoInicialMes(
-  mesSelecionado: string,
-  movimentacoes: Movimentacao[],
-  faturasPagamento: FaturaPagamento[],
-  cartoes: Cartao[],
-  contas: ContaFixaDashboard[],
-  pagamentosContas: PagamentoContaDashboard[]
-) {
-  const mesAnterior = adicionarMeses(mesSelecionado, -1);
-
-  const snapMesAnterior = calcularSnapshotDoMesBase(
-    mesAnterior,
-    movimentacoes,
-    faturasPagamento,
-    cartoes,
-    contas,
-    pagamentosContas
-  );
-
-  return snapMesAnterior.entradas - snapMesAnterior.saidasPagas;
-}
-
-function calcularSnapshotDoMesBase(
-  mesSelecionado: string,
-  movimentacoes: Movimentacao[],
-  faturasPagamento: FaturaPagamento[],
-  cartoes: Cartao[],
-  contas: ContaFixaDashboard[],
-  pagamentosContas: PagamentoContaDashboard[]
-): MonthSnapshot {
-  const [ano, mes] = mesSelecionado.split("-").map(Number);
-  const inicioMes = `${mesSelecionado}-01`;
-  const proximoMes =
-    mes === 12
-      ? `${ano + 1}-01-01`
-      : `${ano}-${String(mes + 1).padStart(2, "0")}-01`;
-
-  const movimentacoesMes = movimentacoes.filter((item) => {
-    const data = item.data ?? "";
-    return data >= inicioMes && data < proximoMes;
-  });
-
-  const entradas = movimentacoesMes.filter(
-    (item) => (item.tipo ?? "").toLowerCase() === "entrada"
-  );
-
-  const despesasAvista = movimentacoesMes.filter(
-    (item) =>
-      (item.tipo ?? "").toLowerCase() === "despesa" &&
-      (item.tipo_pagamento ?? "").toLowerCase() !== "credito"
-  );
-
-  const totalEntradas = entradas.reduce(
-    (acc, item) => acc + normalizarNumero(item.valor),
-    0
-  );
-
-  const totalDespesasAvista = despesasAvista.reduce(
-    (acc, item) => acc + normalizarNumero(item.valor),
-    0
-  );
-
-  const movimentacoesCredito = movimentacoes.filter(
-    (item) =>
-      (item.tipo ?? "").toLowerCase() === "despesa" &&
-      (item.tipo_pagamento ?? "").toLowerCase() === "credito" &&
-      !!item.cartao_id
-  );
-
-  const faturasProjetadas = new Map<string, number>();
-
-  for (const mov of movimentacoesCredito) {
-    const cartaoId = Number(mov.cartao_id);
-    const valorTotal = normalizarNumero(mov.valor);
-    const parcelas = Number(mov.parcelas || 1);
-
-    let primeiraCompetencia = mov.primeira_cobranca;
-    if (!primeiraCompetencia && mov.data) {
-      primeiraCompetencia = mov.data.slice(0, 7);
-    }
-
-    if (!primeiraCompetencia) continue;
-
-    const valorParcela = valorTotal / parcelas;
-
-    for (let i = 0; i < parcelas; i++) {
-      const competencia = adicionarMeses(primeiraCompetencia, i);
-
-      if (competencia <= mesSelecionado) {
-        const chave = `${cartaoId}|${competencia}`;
-        const atual = faturasProjetadas.get(chave) || 0;
-        faturasProjetadas.set(chave, atual + valorParcela);
-      }
-    }
-  }
-
-  let totalFaturasPagasNoMes = 0;
-  let totalFaturasEmAbertoMes = 0;
-  let totalFaturasEmAbertoAtrasadas = 0;
-  let totalAdiantadasNoMes = 0;
-
-  const resumoPorCartao = new Map<number, ResumoCartao>();
-
-  for (const cartao of cartoes) {
-    resumoPorCartao.set(cartao.id, {
-      id: cartao.id,
-      nome: cartao.nome,
-      limite: normalizarNumero(cartao.limite),
-      emAberto: 0,
-    });
-  }
-
-  for (const [chave, valorFatura] of faturasProjetadas.entries()) {
-    const [cartaoIdStr, competencia] = chave.split("|");
-    const cartaoId = Number(cartaoIdStr);
-
-    const pagamento = faturasPagamento.find(
-      (item) =>
-        item.cartao_id === cartaoId &&
-        item.mes_referencia === competencia &&
-        (item.status ?? "").toLowerCase() === "paga"
-    );
-
-    if (!pagamento) {
-      if (competencia < mesSelecionado) {
-        totalFaturasEmAbertoAtrasadas += valorFatura;
-      } else if (competencia === mesSelecionado) {
-        totalFaturasEmAbertoMes += valorFatura;
-      }
-
-      const resumo = resumoPorCartao.get(cartaoId);
-      if (resumo) resumo.emAberto += valorFatura;
-      continue;
-    }
-
-    const mesPagamento = pagamento.data_pagamento?.slice(0, 7);
-
-    if (mesPagamento === mesSelecionado) {
-      const valorPago = normalizarNumero(pagamento.valor_pago || valorFatura);
-      totalFaturasPagasNoMes += valorPago;
-
-      if (competencia > mesSelecionado) {
-        totalAdiantadasNoMes += valorPago;
-      }
-    } else {
-      const resumo = resumoPorCartao.get(cartaoId);
-      if (resumo && competencia <= mesSelecionado) {
-        resumo.emAberto += valorFatura;
-      }
-    }
-  }
-
-  let totalContasPagasNoMes = 0;
-  let totalContasEmAbertoMes = 0;
-  let totalContasEmAbertoAtrasadas = 0;
-
-  const contasAtivas = contas.filter((conta) => conta.ativa !== false);
-
-for (const conta of contasAtivas) {
-  if (!conta.inicio_cobranca) continue;
-  if (conta.inicio_cobranca > mesSelecionado) continue;
-
-  const competencias: string[] = [];
-
-  if (conta.tipo_recorrencia === "indeterminada") {
-    let atual = conta.inicio_cobranca;
-    while (atual <= mesSelecionado) {
-      competencias.push(atual);
-      atual = adicionarMeses(atual, 1);
-    }
-  } else {
-    const ultimoMes = getUltimoMesConta(conta);
-    if (!ultimoMes) continue;
-
-    let atual = conta.inicio_cobranca;
-    while (atual <= mesSelecionado && atual <= ultimoMes) {
-      competencias.push(atual);
-      atual = adicionarMeses(atual, 1);
-    }
-  }
-
-  for (const competencia of competencias) {
-    const pagamento = pagamentosContas.find(
-      (item) =>
-        Number(item.origem_id) === conta.id &&
-        item.mes_referencia === competencia &&
-        (item.status ?? "").toLowerCase() === "paga"
-    );
-
-    const valorConta = normalizarNumero(conta.valor);
-
-    if (!pagamento) {
-      if (competencia < mesSelecionado) {
-        totalContasEmAbertoAtrasadas += valorConta;
-      } else if (competencia === mesSelecionado) {
-        totalContasEmAbertoMes += valorConta;
-      }
-      continue;
-    }
-
-    const mesPagamento = pagamento.data_pagamento?.slice(0, 7);
-
-    if (mesPagamento === mesSelecionado) {
-      totalContasPagasNoMes += normalizarNumero(
-        pagamento.valor_pago || valorConta
-      );
-    }
-  }
-}
-  const totalSaidasPagas =
-    totalDespesasAvista + totalFaturasPagasNoMes + totalContasPagasNoMes;
-
-  const comprometidoMes =
-    totalFaturasEmAbertoMes + totalContasEmAbertoMes;
-
-  const comprometidoAtrasado =
-    totalFaturasEmAbertoAtrasadas + totalContasEmAbertoAtrasadas;
-
-  const totalComprometido = comprometidoMes + comprometidoAtrasado;
-
-  return {
-    saldoInicial: 0,
-    entradas: totalEntradas,
-    saidasPagas: totalSaidasPagas,
-    comprometidoMes,
-    comprometidoAtrasado,
-    comprometido: totalComprometido,
-    saldoDisponivel: totalEntradas - totalSaidasPagas,
-    adiantadas: totalAdiantadasNoMes,
-    cartoesResumo: Array.from(resumoPorCartao.values()),
-  };
-}
-
-function calcularSnapshotDoMes(
-  mesSelecionado: string,
-  movimentacoes: Movimentacao[],
-  faturasPagamento: FaturaPagamento[],
-  cartoes: Cartao[],
-  contas: ContaFixaDashboard[],
-  pagamentosContas: PagamentoContaDashboard[]
-): MonthSnapshot {
-  const base = calcularSnapshotDoMesBase(
-    mesSelecionado,
-    movimentacoes,
-    faturasPagamento,
-    cartoes,
-    contas,
-    pagamentosContas
-  );
-
-  const saldoInicial = calcularSaldoInicialMes(
-    mesSelecionado,
-    movimentacoes,
-    faturasPagamento,
-    cartoes,
-    contas,
-    pagamentosContas
-  );
-
-  const saldoDisponivel = saldoInicial + base.entradas - base.saidasPagas;
-
-  return {
-    ...base,
-    saldoInicial,
-    saldoDisponivel,
-  };
-}
-
-function formatarPrazoCurto(data: string | null) {
-  if (!data) return "Sem prazo";
-  if (/^\d{4}-\d{2}$/.test(data)) return formatarCompetencia(data);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(data)) return formatarData(data);
-  return data;
-}
-
-
-function getDataPrazoMeta(prazo: string | null) {
-  if (!prazo) return null;
-
-  if (/^\d{4}-\d{2}$/.test(prazo)) {
-    const [ano, mes] = prazo.split("-").map(Number);
-    return new Date(ano, mes, 0);
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(prazo)) {
-    return new Date(`${prazo}T23:59:59`);
-  }
-
-  return null;
-}
-
-function calcularPlanoMeta(meta: MetaResumo, saldoDisponivel: number, prioridade: number): MetaPlanoRadar | null {
-  if (!meta.id || meta.faltante <= 0) return null;
-
-  const dataPrazo = getDataPrazoMeta(meta.prazo);
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-
-  const diasAtePrazo = dataPrazo
-    ? Math.max(
-        Math.ceil((dataPrazo.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24)),
-        1
-      )
-    : 30;
-
-  const valorPorDia = meta.faltante / diasAtePrazo;
-  const multiplicadorPrioridade = prioridade === 1 ? 1.25 : prioridade === 2 ? 1 : 0.85;
-  const valorSugeridoHoje = saldoDisponivel > 0
-    ? Math.min(meta.faltante, Math.max(valorPorDia * multiplicadorPrioridade, valorPorDia))
-    : 0;
-
-  return {
-    id: meta.id,
-    nome: meta.nome,
-    prazo: meta.prazo,
-    faltante: meta.faltante,
-    valorPorDia,
-    valorSugeridoHoje,
-    percentual: meta.percentual,
-    prioridade,
-  };
-}
-
-function gerarInsights({
-  entradas,
-  saidas,
-  comprometido,
-  saldo,
-  metas,
-}: {
-  entradas: number;
-  saidas: number;
-  comprometido: number;
-  saldo: number;
-  metas: MetasSnapshot;
-}) {
-  const insights: {
-    tipo: "alerta" | "positivo" | "neutro";
-    texto: string;
-  }[] = [];
-
-  const usoTotal = saidas + comprometido;
-
-  if (usoTotal > entradas) {
-    insights.push({
-      tipo: "alerta",
-      texto: `Você já comprometeu mais do que ganhou este mês.`,
-    });
-  }
-
-  if (saldo > 0 && metas.metaMaisProxima) {
-    insights.push({
-      tipo: "positivo",
-      texto: `Você pode aportar até ${formatarMoeda(
-        saldo
-      )} na meta "${metas.metaMaisProxima.nome}".`,
-    });
-  }
-
-  if (saidas === 0 && comprometido > 0) {
-    insights.push({
-      tipo: "neutro",
-      texto: `Você ainda não teve saídas reais, mas já possui valores comprometidos.`,
-    });
-  }
-
-  if (insights.length === 0) {
-    insights.push({
-      tipo: "neutro",
-      texto: `Seu mês está equilibrado até agora.`,
-    });
-  }
-
-  return insights;
-}
-
-function gerarPrevisao({
-  entradas,
-  saidas,
-  comprometido,
-}: {
-  entradas: number;
-  saidas: number;
-  comprometido: number;
-}) {
-  const hoje = new Date();
-  const diaAtual = hoje.getDate();
-
-  const ultimoDiaMes = new Date(
-    hoje.getFullYear(),
-    hoje.getMonth() + 1,
-    0
-  ).getDate();
-
-  const diasRestantes = Math.max(ultimoDiaMes - diaAtual + 1, 1);
-
-  const gastoDiarioAtual = diaAtual > 0 ? saidas / diaAtual : 0;
-
-  // projeção conservadora: o que ainda falta pagar + ritmo atual de gasto real
-  const previsaoSaidasReaisRestantes = gastoDiarioAtual * diasRestantes;
-  const saldoFinalPrevisto =
-    entradas - saidas - comprometido - previsaoSaidasReaisRestantes;
-
-  const gastoDiarioPermitido =
-    diasRestantes > 0
-      ? (entradas - saidas - comprometido) / diasRestantes
-      : 0;
-
-  return {
-    saldoFinalPrevisto,
-    gastoDiarioAtual,
-    gastoDiarioPermitido,
-    diasRestantes,
-  };
-}
-
-function calcularValorAtualMetaDashboard(
-  meta: Record<string, unknown>,
-  aportes: Record<string, unknown>[]
-) {
-  const valorInicial = getNumeroCampo(meta, ["valor_inicial"], 0);
-  const valorAtualBase = getNumeroCampo(
-    meta,
-    ["valor_atual", "valor_guardado", "guardado", "saved_amount", "valor"],
-    0
-  );
-
-  const base = valorAtualBase > 0 ? valorAtualBase : valorInicial;
-
-  const totalHistorico = aportes.reduce((acc, item) => {
-    const valor = getNumeroCampo(item, ["valor"], 0);
-    const tipo = getStringCampo(item, ["tipo"], "").toLowerCase();
-
-    if (tipo === "aporte") return acc + valor;
-    if (tipo === "retirada") return acc - valor;
-    if (tipo === "ajuste") return acc + valor;
-
-    return acc;
-  }, 0);
-
-  return base + totalHistorico;
-}
-
-function calcularMetasSnapshotComAportes(
-  metasRaw: Record<string, unknown>[],
-  aportesRaw: Record<string, unknown>[]
-): MetasSnapshot {
-  const metas = metasRaw
-    .filter((meta) => {
-      const status = getStringCampo(meta, ["status"], "ativa").toLowerCase();
-      const considerar =
-        typeof meta.considerar_na_dashboard === "boolean"
-          ? meta.considerar_na_dashboard
-          : true;
-
-      return status === "ativa" && considerar;
-    })
-    .map((meta, index) => {
-      const metaId = getStringCampo(meta, ["id"], "");
-      const aportesDaMeta = aportesRaw.filter(
-        (item) => getStringCampo(item, ["meta_id"], "") === metaId
-      );
-
-      const nome =
-        getStringCampo(meta, ["nome", "titulo", "descricao"], `Meta ${index + 1}`) ||
-        `Meta ${index + 1}`;
-
-      const valorMeta = Math.max(
-        getNumeroCampo(meta, [
-          "valor_meta",
-          "valor_alvo",
-          "meta",
-          "objetivo",
-          "target_amount",
-        ]),
-        0
-      );
-
-      const valorAtual = Math.max(
-        calcularValorAtualMetaDashboard(meta, aportesDaMeta),
-        0
-      );
-
-      const prazo =
-        getStringCampo(meta, ["prazo", "data_limite", "deadline"], "") || null;
-
-      const faltante = Math.max(valorMeta - valorAtual, 0);
-      const percentual =
-        valorMeta > 0 ? Math.min((valorAtual / valorMeta) * 100, 100) : 0;
-
-      return {
-        id: metaId,
-        nome,
-        valorMeta,
-        valorAtual,
-        faltante,
-        percentual,
-        prazo,
-      };
-    })
-    .filter((meta) => meta.valorMeta > 0 || meta.valorAtual > 0);
-
-  const totalGuardado = metas.reduce((acc, meta) => acc + meta.valorAtual, 0);
-
-  const metasOrdenadas = [...metas]
-    .filter((meta) => meta.faltante > 0)
-    .sort((a, b) => {
-      const aTemPrazo = Boolean(a.prazo);
-      const bTemPrazo = Boolean(b.prazo);
-
-      if (aTemPrazo && !bTemPrazo) return -1;
-      if (!aTemPrazo && bTemPrazo) return 1;
-
-      if (a.prazo && b.prazo && a.prazo !== b.prazo) {
-        return a.prazo.localeCompare(b.prazo);
-      }
-
-      return a.faltante - b.faltante;
-    });
-
-  return {
-    totalGuardado,
-    quantidadeAtivas: metas.length,
-    metaMaisProxima: metasOrdenadas[0] ?? null,
-    metasOrdenadas,
-  };
-}
-
-function gerarRecomendacoes({
-  saldo,
-  previsao,
-  metas,
-}: {
-  saldo: number;
-  previsao: ReturnType<typeof gerarPrevisao>;
-  metas: MetasSnapshot;
-}): RecomendacaoItem[] {
-  const recomendacoes: RecomendacaoItem[] = [];
-
-  if (previsao.saldoFinalPrevisto < 0) {
-    const deficit = Math.abs(previsao.saldoFinalPrevisto);
-
-    recomendacoes.push({
-      tipo: "alerta",
-      texto: `Você precisa reduzir cerca de ${formatarMoeda(
-        deficit / (previsao.diasRestantes || 1)
-      )} por dia para não fechar o mês negativo.`,
-    });
-  }
-
-  if (saldo > 0 && metas.metaMaisProxima?.id) {
-    const valorSugerido = Number((saldo * 0.5).toFixed(2));
-
-    recomendacoes.push({
-      tipo: "acao",
-      texto: `Você pode guardar ${formatarMoeda(
-        valorSugerido
-      )} hoje na meta "${metas.metaMaisProxima.nome}".`,
-      acao: {
-        tipo: "guardar_meta",
-        valor: valorSugerido,
-        metaId: metas.metaMaisProxima.id,
-        metaNome: metas.metaMaisProxima.nome,
-      },
-    });
-  }
-
-  if (saldo > 0 && previsao.saldoFinalPrevisto > 0) {
-    recomendacoes.push({
-      tipo: "acao",
-      texto: `Você está em um bom ritmo. Continue mantendo seus gastos controlados.`,
-    });
-  }
-
-  if (recomendacoes.length === 0) {
-    recomendacoes.push({
-      tipo: "acao",
-      texto: `Sem ações necessárias agora.`,
-    });
-  }
-
-  return recomendacoes;
-}
-
-function ModalLancamentoDashboard({
-  open,
-  onClose,
-  onSave,
-  formType,
-  setFormType,
-  formData,
-  setFormData,
-  cartoes,
-  saving,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSave: (e: React.FormEvent) => Promise<void>;
-  formType: FormType;
-  setFormType: (value: FormType) => void;
-  formData: ActionFormData;
-  setFormData: React.Dispatch<React.SetStateAction<ActionFormData>>;
-  cartoes: Cartao[];
-  saving: boolean;
-}) {
-  const categoriasAtuais = getCategoryOptions(formType);
-
-  const primeiraCobrancaSugerida = useMemo(() => {
-    if (formType !== "despesa") return "";
-    if (formData.tipoPagamento !== "credito") return "";
-    if (!formData.data || !formData.cartaoId) return "";
-
-    return calcularPrimeiraCobranca(
-      formData.data,
-      Number(formData.cartaoId),
-      cartoes
-    );
-  }, [cartoes, formData.cartaoId, formData.data, formData.tipoPagamento, formType]);
-
-  if (!open) return null;
-
-  return (
-    <>
-      <div
-        className="fixed inset-0 z-80 bg-slate-900/40 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
-
-      <div className="fixed inset-0 z-90 flex items-center justify-center p-4">
-        <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-4xl border border-slate-200 bg-white shadow-2xl">
-          <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
-            <div>
-              <p className="text-sm font-medium text-slate-500">Novo lançamento</p>
-              <h3 className="mt-1 text-xl font-semibold text-slate-900">
-                {formType === "entrada" ? "Nova entrada" : "Nova despesa"}
-              </h3>
-            </div>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <form onSubmit={onSave} className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-6 py-6">
-              <div className="space-y-6">
-                <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-6">
-                  <div className="space-y-3">
-                    <label className="text-sm font-medium text-slate-700">Tipo</label>
-                    <div className="flex gap-2 rounded-xl bg-slate-100 p-1">
-                      <button
-                        type="button"
-                        onClick={() => setFormType("entrada")}
-                        className={
-                          formType === "entrada"
-                            ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm"
-                            : "flex-1 rounded-lg px-4 py-2 text-sm font-medium text-slate-600"
-                        }
-                      >
-                        Entrada
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setFormType("despesa")}
-                        className={
-                          formType === "despesa"
-                            ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm"
-                            : "flex-1 rounded-lg px-4 py-2 text-sm font-medium text-slate-600"
-                        }
-                      >
-                        Despesa
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium text-slate-700">Descrição</label>
-                    <input
-                      type="text"
-                      value={formData.descricao}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, descricao: e.target.value }))
-                      }
-                      className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                    />
-                  </div>
-
-                  <div className="grid gap-5 md:grid-cols-2">
-                    <div className="grid gap-2">
-                      <label className="text-sm font-medium text-slate-700">Valor</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData.valor}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, valor: e.target.value }))
-                        }
-                        className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <label className="text-sm font-medium text-slate-700">Data</label>
-                      <input
-                        type="date"
-                        value={formData.data}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, data: e.target.value }))
-                        }
-                        className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium text-slate-700">Categoria</label>
-                    <select
-                      value={formData.categoria}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, categoria: e.target.value }))
-                      }
-                      className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                    >
-                      <option value="">Selecione</option>
-                      {categoriasAtuais.map((categoria) => (
-                        <option key={categoria.id} value={categoria.id}>
-                          {categoria.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {formType === "despesa" && (
-                  <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-6">
-                    <div className="grid gap-2">
-                      <label className="text-sm font-medium text-slate-700">
-                        Tipo de pagamento
-                      </label>
-                      <select
-                        value={formData.tipoPagamento}
-                        onChange={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            tipoPagamento: e.target.value as PaymentType,
-                            cartaoId: e.target.value === "credito" ? prev.cartaoId : "",
-                            parcelas: e.target.value === "credito" ? prev.parcelas : "1",
-                            primeiraCobranca:
-                              e.target.value === "credito" ? prev.primeiraCobranca : "",
-                          }))
-                        }
-                        className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                      >
-                        <option value="pix_dinheiro">PIX / Dinheiro</option>
-                        <option value="debito">Cartão de Débito</option>
-                        <option value="credito">Cartão de Crédito</option>
-                      </select>
-                    </div>
-
-                    {formData.tipoPagamento === "credito" && (
-                      <>
-                        <div className="grid gap-2">
-                          <label className="text-sm font-medium text-slate-700">Cartão</label>
-                          <select
-                            value={formData.cartaoId}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, cartaoId: e.target.value }))
-                            }
-                            className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                          >
-                            <option value="">Selecione</option>
-                            {cartoes.map((cartao) => (
-                              <option key={cartao.id} value={cartao.id}>
-                                {cartao.nome}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="grid gap-5 md:grid-cols-2">
-                          <div className="grid gap-2">
-                            <label className="text-sm font-medium text-slate-700">Parcelas</label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={formData.parcelas}
-                              onChange={(e) =>
-                                setFormData((prev) => ({ ...prev, parcelas: e.target.value }))
-                              }
-                              className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                            />
-                          </div>
-
-                          <div className="grid gap-2">
-                            <label className="text-sm font-medium text-slate-700">
-                              Primeira cobrança
-                            </label>
-                            <input
-                              type="month"
-                              value={formData.primeiraCobranca || primeiraCobrancaSugerida}
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  primeiraCobranca: e.target.value,
-                                }))
-                              }
-                              className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-              >
-                Cancelar
-              </button>
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving ? "Salvando..." : "Salvar"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function DashboardSkeleton() {
-  return (
-    <div className="min-h-screen bg-[#f6f8fb] px-6 py-6 md:px-8 md:py-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="h-44 animate-pulse rounded-3xl bg-zinc-200/80" />
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="h-36 animate-pulse rounded-3xl bg-zinc-200/80" />
-          <div className="h-36 animate-pulse rounded-3xl bg-zinc-200/80" />
-          <div className="h-36 animate-pulse rounded-3xl bg-zinc-200/80" />
-          <div className="h-36 animate-pulse rounded-3xl bg-zinc-200/80" />
-        </div>
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="h-56 animate-pulse rounded-3xl bg-zinc-200/80" />
-          <div className="h-56 animate-pulse rounded-3xl bg-zinc-200/80" />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function DashboardPage() {
   const [mesSelecionado, setMesSelecionado] = useState(getMesAtual());
@@ -1784,44 +327,44 @@ export default function DashboardPage() {
   }, [metasResumo.metasOrdenadas, saldoDisponivel]);
 
   const alertasContas = useMemo(() => {
-  const contasDoMes = contasCache.filter((conta) =>
-  contaEstaPendenteAteMes(conta, mesSelecionado, pagamentosContasCache)
-);
+    const contasDoMes = contasCache.filter((conta) =>
+      contaEstaPendenteAteMes(conta, mesSelecionado, pagamentosContasCache)
+    );
 
-  const itens = contasDoMes
-    .map((conta) => {
-      const info = getStatusContaDashboard(
-        conta,
-        mesSelecionado,
-        pagamentosContasCache
-      );
+    const itens = contasDoMes
+      .map((conta) => {
+        const info = getStatusContaDashboard(
+          conta,
+          mesSelecionado,
+          pagamentosContasCache
+        );
 
-      return {
-        conta,
-        ...info,
-      };
-    })
-    .filter((item) =>
-      ["vencida", "vence_hoje", "vence_breve"].includes(item.status)
-    )
-    .sort((a, b) => a.dataVencimento.localeCompare(b.dataVencimento));
+        return {
+          conta,
+          ...info,
+        };
+      })
+      .filter((item) =>
+        ["vencida", "vence_hoje", "vence_breve"].includes(item.status)
+      )
+      .sort((a, b) => a.dataVencimento.localeCompare(b.dataVencimento));
 
-  return {
-    vencidas: itens.filter((item) => item.status === "vencida"),
-    vencemHoje: itens.filter((item) => item.status === "vence_hoje"),
-    vencemBreve: itens.filter((item) => item.status === "vence_breve"),
-    total: itens.length,
-    itens,
-  };
-}, [contasCache, mesSelecionado, pagamentosContasCache]);
+    return {
+      vencidas: itens.filter((item) => item.status === "vencida"),
+      vencemHoje: itens.filter((item) => item.status === "vence_hoje"),
+      vencemBreve: itens.filter((item) => item.status === "vence_breve"),
+      total: itens.length,
+      itens,
+    };
+  }, [contasCache, mesSelecionado, pagamentosContasCache]);
 
   const sugestoesReceita = useMemo(() => {
-  return gerarSugestoesReceita({
-    saldoProjetado: sobraProjetada,
-    alertasContas,
-    metas: metasResumo,
-  });
-}, [sobraProjetada, alertasContas, metasResumo]);
+    return gerarSugestoesReceita({
+      saldoProjetado: sobraProjetada,
+      alertasContas,
+      metas: metasResumo,
+    });
+  }, [sobraProjetada, alertasContas, metasResumo]);
 
   const modalResumo = useMemo(() => {
     const [ano, mes] = mesSelecionado.split("-").map(Number);
@@ -2050,53 +593,60 @@ export default function DashboardPage() {
 
       const contasAtivas = contasCache.filter((conta) => conta.ativa !== false);
 
-for (const conta of contasAtivas) {
-  if (!conta.inicio_cobranca) continue;
-  if (conta.inicio_cobranca > mesSelecionado) continue;
+      for (const conta of contasAtivas) {
+        if (!conta.inicio_cobranca) continue;
+        if (conta.inicio_cobranca > mesSelecionado) continue;
 
-  const competencias: string[] = [];
+        const competencias: string[] = [];
 
-  if (conta.tipo_recorrencia === "indeterminada") {
-    let atual = conta.inicio_cobranca;
-    while (atual <= mesSelecionado) {
-      competencias.push(atual);
-      atual = adicionarMeses(atual, 1);
-    }
-  } else {
-    const ultimoMes = getUltimoMesConta(conta);
-    if (!ultimoMes) continue;
+        if (conta.tipo_recorrencia === "indeterminada") {
+          let atual = conta.inicio_cobranca;
+          while (atual <= mesSelecionado) {
+            competencias.push(atual);
+            atual = adicionarMeses(atual, 1);
+          }
+        } else {
+          const ultimoMes = (() => {
+            if (!conta.inicio_cobranca) return null;
+            if (conta.fim_cobranca) return conta.fim_cobranca;
+            if (conta.quantidade_meses && conta.quantidade_meses > 0) {
+              return adicionarMeses(conta.inicio_cobranca, conta.quantidade_meses - 1);
+            }
+            return null;
+          })();
+          if (!ultimoMes) continue;
 
-    let atual = conta.inicio_cobranca;
-    while (atual <= mesSelecionado && atual <= ultimoMes) {
-      competencias.push(atual);
-      atual = adicionarMeses(atual, 1);
-    }
-  }
+          let atual = conta.inicio_cobranca;
+          while (atual <= mesSelecionado && atual <= ultimoMes) {
+            competencias.push(atual);
+            atual = adicionarMeses(atual, 1);
+          }
+        }
 
-  for (const competencia of competencias) {
-    const pagamento = pagamentosContasCache.find(
-      (item) =>
-        Number(item.origem_id) === conta.id &&
-        item.mes_referencia === competencia &&
-        (item.status ?? "").toLowerCase() === "paga"
-    );
+        for (const competencia of competencias) {
+          const pagamento = pagamentosContasCache.find(
+            (item) =>
+              Number(item.origem_id) === conta.id &&
+              item.mes_referencia === competencia &&
+              (item.status ?? "").toLowerCase() === "paga"
+          );
 
-    if (!pagamento) {
-      itens.push({
-        id: `conta-aberta-${conta.id}-${competencia}`,
-        tipo: "conta",
-        titulo: conta.descricao,
-        categoria: conta.categoria || "Conta",
-        valor: normalizarNumero(conta.valor),
-        dataPrincipal: `Vencimento dia ${String(
-          conta.dia_vencimento || 1
-        ).padStart(2, "0")}`,
-        competencia: `Competência ${formatarCompetencia(competencia)}`,
-        pagamentoLabel: "Conta em aberto",
-      });
-    }
-  }
-}
+          if (!pagamento) {
+            itens.push({
+              id: `conta-aberta-${conta.id}-${competencia}`,
+              tipo: "conta",
+              titulo: conta.descricao,
+              categoria: conta.categoria || "Conta",
+              valor: normalizarNumero(conta.valor),
+              dataPrincipal: `Vencimento dia ${String(
+                conta.dia_vencimento || 1
+              ).padStart(2, "0")}`,
+              competencia: `Competência ${formatarCompetencia(competencia)}`,
+              pagamentoLabel: "Conta em aberto",
+            });
+          }
+        }
+      }
 
       return {
         titulo: "Comprometido",
@@ -2227,43 +777,43 @@ for (const conta of contasAtivas) {
   );
 
   const pagarContaDashboard = useCallback(
-  async (conta: ContaFixaDashboard) => {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    async (conta: ContaFixaDashboard) => {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-    if (authError || !user) {
-      alert("Você precisa estar logado.");
-      return;
-    }
-
-    const { error } = await supabase.from("pagamentos_contas").upsert(
-      {
-        origem_tipo: "fixa",
-        origem_id: conta.id,
-        mes_referencia: mesSelecionado,
-        valor_pago: normalizarNumero(conta.valor),
-        data_pagamento: getHoje(),
-        status: "paga",
-        user_id: user.id,
-      },
-      {
-        onConflict: "origem_tipo,origem_id,mes_referencia",
+      if (authError || !user) {
+        alert("Você precisa estar logado.");
+        return;
       }
-    );
 
-    if (error) {
-      alert(`Erro ao pagar conta: ${error.message}`);
-      return;
-    }
+      const { error } = await supabase.from("pagamentos_contas").upsert(
+        {
+          origem_tipo: "fixa",
+          origem_id: conta.id,
+          mes_referencia: mesSelecionado,
+          valor_pago: normalizarNumero(conta.valor),
+          data_pagamento: getHoje(),
+          status: "paga",
+          user_id: user.id,
+        },
+        {
+          onConflict: "origem_tipo,origem_id,mes_referencia",
+        }
+      );
 
-    setToast(`Conta "${conta.descricao}" marcada como paga`);
-    await carregarDashboard();
-    setTimeout(() => setToast(null), 2500);
-  },
-  [carregarDashboard, mesSelecionado]
-);
+      if (error) {
+        alert(`Erro ao pagar conta: ${error.message}`);
+        return;
+      }
+
+      setToast(`Conta "${conta.descricao}" marcada como paga`);
+      await carregarDashboard();
+      setTimeout(() => setToast(null), 2500);
+    },
+    [carregarDashboard, mesSelecionado]
+  );
 
   async function handleSaveAction(e: React.FormEvent) {
     e.preventDefault();
@@ -2375,15 +925,14 @@ for (const conta of contasAtivas) {
                   <CalendarDays className="h-3.5 w-3.5" />
                   Referência: {formatarMesExtenso(mesSelecionado)}
                 </div>
-<div className="space-y-1">
-  <h1 className="text-5xl font-bold tracking-tight text-zinc-900">
-    Dashboard
-  </h1>
-  <p className="text-base text-zinc-600">
-    Sua visão financeira atual, com foco no que importa agora.
-  </p>
-</div>
-                
+                <div className="space-y-1">
+                  <h1 className="text-5xl font-bold tracking-tight text-zinc-900">
+                    Dashboard
+                  </h1>
+                  <p className="text-base text-zinc-600">
+                    Sua visão financeira atual, com foco no que importa agora.
+                  </p>
+                </div>
 
                 <div className="flex flex-wrap gap-3 pt-1">
                   <button
@@ -2465,7 +1014,7 @@ for (const conta of contasAtivas) {
           </div>
         </section>
 
-                <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
             <div className="p-6">
               <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
@@ -2594,20 +1143,20 @@ for (const conta of contasAtivas) {
           </div>
         </section>
 
-<InteligenciaMesSection
-  insights={insights}
-  previsao={previsao}
-  recomendacoes={recomendacoes}
-  sugestoesReceita={sugestoesReceita}
-  alertasContas={alertasContas}
-  formatarMoeda={formatarMoeda}
-  formatarData={formatarData}
-  normalizarNumero={normalizarNumero}
-  pagarContaDashboard={pagarContaDashboard}
-  executarAcao={executarAcao}
-/>
+        <InteligenciaMesSection
+          insights={insights}
+          previsao={previsao}
+          recomendacoes={recomendacoes}
+          sugestoesReceita={sugestoesReceita}
+          alertasContas={alertasContas}
+          formatarMoeda={formatarMoeda}
+          formatarData={formatarData}
+          normalizarNumero={normalizarNumero}
+          pagarContaDashboard={pagarContaDashboard}
+          executarAcao={executarAcao}
+        />
 
-<section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
             <div className="border-b border-zinc-100 px-6 py-5">
               <div className="flex items-center justify-between gap-4">
@@ -2844,24 +1393,24 @@ for (const conta of contasAtivas) {
         </section>
 
         <ResumoCards
-  entradasMesTexto={formatarMoeda(entradasMes)}
-  saidasPagasMesTexto={formatarMoeda(saidasPagasMes)}
-  comprometidoTexto={formatarMoeda(comprometido)}
-  adiantadasMesTexto={formatarMoeda(adiantadasMes)}
-  contasMesTexto={formatarMoeda(
-    contasCache
-      .filter(
-        (conta) =>
-          conta.ativa !== false && contaExisteNoMes(conta, mesSelecionado)
-      )
-      .reduce((acc, conta) => acc + normalizarNumero(conta.valor), 0)
-  )}
-  cardAtivo={cardAtivo}
-  onToggleCard={(card: ResumoCardAtivo) => {
-  setBuscaModal("");
-  setCardAtivo((prev) => (prev === card ? null : card));
-}}
-/>
+          entradasMesTexto={formatarMoeda(entradasMes)}
+          saidasPagasMesTexto={formatarMoeda(saidasPagasMes)}
+          comprometidoTexto={formatarMoeda(comprometido)}
+          adiantadasMesTexto={formatarMoeda(adiantadasMes)}
+          contasMesTexto={formatarMoeda(
+            contasCache
+              .filter(
+                (conta) =>
+                  conta.ativa !== false && contaExisteNoMes(conta, mesSelecionado)
+              )
+              .reduce((acc, conta) => acc + normalizarNumero(conta.valor), 0)
+          )}
+          cardAtivo={cardAtivo}
+          onToggleCard={(card: ResumoCardAtivo) => {
+            setBuscaModal("");
+            setCardAtivo((prev) => (prev === card ? null : card));
+          }}
+        />
 
         <section className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
           <div className="border-b border-zinc-100 px-6 py-5">
@@ -2904,7 +1453,7 @@ for (const conta of contasAtivas) {
         cartoes={cartoesCache}
         saving={savingAction}
       />
-      
+
       {toast && (
         <div className="fixed bottom-6 right-6 z-999">
           <div className="rounded-2xl bg-zinc-900 px-5 py-3 text-sm text-white shadow-xl">
