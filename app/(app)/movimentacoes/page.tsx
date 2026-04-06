@@ -2,142 +2,49 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Calendar,
-  CreditCard,
-  Check,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Search,
-  SlidersHorizontal,
-  Tag,
-  Trash2,
-  Wallet,
-  X,
-} from "lucide-react";
+import { Plus, Search, SlidersHorizontal, Tag } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { SectionCard } from "@/components/ui/section-card";
 import { createClient } from "@/lib/supabase/client";
 
-type FormType = "entrada" | "despesa";
-type TabType = "entradas" | "despesas";
-type PaymentType = "pix_dinheiro" | "debito" | "credito";
+import type {
+  Cartao,
+  CategoryManagerTab,
+  CategoryOption,
+  DbCartao,
+  DbMovimentacao,
+  DbMovimentacaoCategoria,
+  FormType,
+  Movimentacao,
+  PaymentType,
+  TabType,
+} from "./_lib/types";
 
-type Cartao = {
-  id: number;
-  nome: string;
-  fechamentoDia: number;
-  vencimentoDia: number;
-};
+import {
+  CATEGORIAS_PADRAO_DESPESA,
+  CATEGORIAS_PADRAO_ENTRADA,
+  calcularPrimeiraCobranca,
+  formatCompetencia,
+  formatCurrency,
+  formatTipoPagamento,
+  getDataLabel,
+  getInitialFormData,
+  getMesAtual,
+  mapDbToUi,
+  resolveCategoryLabel,
+  slugify,
+} from "./_lib/utils";
 
-type Movimentacao = {
-  id: number;
-  created_at?: string;
-  tipo: FormType;
-  descricao: string;
-  categoria: string;
-  valor: number;
-  data: string;
-  tipoPagamento?: PaymentType | null;
-  cartaoId?: number | null;
-  parcelas?: number | null;
-  primeiraCobranca?: string | null;
-  metaId?: string | null;
-  metaAporteId?: string | null;
-  rvTransferenciaId?: string | null;
-};
-
-type DbMovimentacao = {
-  id: number;
-  created_at: string;
-  tipo: FormType;
-  descricao: string;
-  categoria: string;
-  valor: number | string;
-  data: string;
-  tipo_pagamento: PaymentType | null;
-  cartao_id: number | null;
-  parcelas: number | null;
-  primeira_cobranca: string | null;
-  meta_id: string | null;
-  meta_aporte_id: string | null;
-  rv_transferencia_id: string | null;
-};
-
-type DbCartao = {
-  id: number;
-  nome: string;
-  fechamento_dia: number;
-  vencimento_dia: number;
-};
-
-
-type CategoryOption = {
-  id: string;
-  label: string;
-  slug?: string;
-  ordem?: number;
-};
-
-type DbMovimentacaoCategoria = {
-  id: string;
-  tipo: FormType;
-  nome: string;
-  slug: string;
-  ordem: number | null;
-  ativa: boolean;
-};
-
-type CategoryManagerTab = "entrada" | "despesa";
-
-const CATEGORIAS_PADRAO_ENTRADA = [
-  { nome: "Salário", slug: "salario", ordem: 1 },
-  { nome: "Uber", slug: "uber", ordem: 2 },
-  { nome: "Freelance", slug: "freelance", ordem: 3 },
-  { nome: "Vendas", slug: "vendas", ordem: 4 },
-  { nome: "Reembolso", slug: "reembolso", ordem: 5 },
-  { nome: "Rendimentos", slug: "rendimentos", ordem: 6 },
-  { nome: "Outros", slug: "outros_entrada", ordem: 99 },
-] as const;
-
-const CATEGORIAS_PADRAO_DESPESA = [
-  { nome: "Alimentação", slug: "alimentacao", ordem: 1 },
-  { nome: "Mercado", slug: "mercado", ordem: 2 },
-  { nome: "Moradia", slug: "moradia", ordem: 3 },
-  { nome: "Água", slug: "agua", ordem: 4 },
-  { nome: "Energia", slug: "energia", ordem: 5 },
-  { nome: "Internet", slug: "internet", ordem: 6 },
-  { nome: "Telefone", slug: "telefone", ordem: 7 },
-  { nome: "Transporte", slug: "transporte", ordem: 8 },
-  { nome: "Combustível", slug: "combustivel", ordem: 9 },
-  { nome: "Manutenção", slug: "manutencao", ordem: 10 },
-  { nome: "Saúde", slug: "saude", ordem: 11 },
-  { nome: "Farmácia", slug: "farmacia", ordem: 12 },
-  { nome: "Lazer", slug: "lazer", ordem: 13 },
-  { nome: "Assinaturas", slug: "assinaturas", ordem: 14 },
-  { nome: "Educação", slug: "educacao", ordem: 15 },
-  { nome: "Cartão de crédito", slug: "cartao_de_credito", ordem: 16 },
-  { nome: "Impostos", slug: "impostos", ordem: 17 },
-  { nome: "Outros", slug: "outros_despesa", ordem: 99 },
-] as const;
+import { CardDespesaPremium } from "./_components/card-despesa";
+import { CardEntradaPremium } from "./_components/card-entrada";
+import { EmptyStatePremium } from "./_components/empty-state";
+import { FiltroChip } from "./_components/filtro-chip";
+import { ModalCategorias } from "./_components/modal-categorias";
+import { ModalDetalhes } from "./_components/modal-detalhes";
+import { ModalMovimentacao } from "./_components/modal-movimentacao";
+import { ResumoCard } from "./_components/resumo-card";
 
 const supabase = createClient();
-
-function getInitialFormData() {
-  return {
-    descricao: "",
-    categoria: "",
-    valor: "",
-    data: "",
-    tipoPagamento: "pix_dinheiro" as PaymentType,
-    cartaoId: "",
-    parcelas: "",
-    primeiraCobranca: "",
-  };
-}
 
 export default function MovimentacoesPage() {
   const router = useRouter();
@@ -159,12 +66,19 @@ export default function MovimentacoesPage() {
   const [selectedItem, setSelectedItem] = useState<Movimentacao | null>(null);
   const [loading, setLoading] = useState(true);
   const [categoriasOpen, setCategoriasOpen] = useState(false);
-  const [categoriaTab, setCategoriaTab] = useState<CategoryManagerTab>("entrada");
-  const [categoriasEntrada, setCategoriasEntrada] = useState<CategoryOption[]>([]);
-  const [categoriasDespesa, setCategoriasDespesa] = useState<CategoryOption[]>([]);
+  const [categoriaTab, setCategoriaTab] =
+    useState<CategoryManagerTab>("entrada");
+  const [categoriasEntrada, setCategoriasEntrada] = useState<CategoryOption[]>(
+    []
+  );
+  const [categoriasDespesa, setCategoriasDespesa] = useState<CategoryOption[]>(
+    []
+  );
   const [loadingCategorias, setLoadingCategorias] = useState(true);
   const [novaCategoriaNome, setNovaCategoriaNome] = useState("");
-  const [editingCategoriaId, setEditingCategoriaId] = useState<string | null>(null);
+  const [editingCategoriaId, setEditingCategoriaId] = useState<string | null>(
+    null
+  );
   const [editingCategoriaNome, setEditingCategoriaNome] = useState("");
 
   const [formData, setFormData] = useState(getInitialFormData());
@@ -360,23 +274,23 @@ export default function MovimentacoesPage() {
     void init();
   }, [carregarCategorias, carregarMovimentacoes, carregarCartoes]);
 
- useEffect(() => {
-  const abrir = searchParams.get("abrir");
+  useEffect(() => {
+    const abrir = searchParams.get("abrir");
 
-  if (abrir !== "entrada" && abrir !== "despesa") return;
+    if (abrir !== "entrada" && abrir !== "despesa") return;
 
-  const frame = requestAnimationFrame(() => {
-    setEditingId(null);
-    setSelectedItem(null);
-    setFormData(getInitialFormData());
-    setFormType(abrir);
-    setActiveTab(abrir === "entrada" ? "entradas" : "despesas");
-    setSheetOpen(true);
-    router.replace("/movimentacoes", { scroll: false });
-  });
+    const frame = requestAnimationFrame(() => {
+      setEditingId(null);
+      setSelectedItem(null);
+      setFormData(getInitialFormData());
+      setFormType(abrir);
+      setActiveTab(abrir === "entrada" ? "entradas" : "despesas");
+      setSheetOpen(true);
+      router.replace("/movimentacoes", { scroll: false });
+    });
 
-  return () => cancelAnimationFrame(frame);
-}, [router, searchParams]);
+    return () => cancelAnimationFrame(frame);
+  }, [router, searchParams]);
 
   function resetForm() {
     setFormData(getInitialFormData());
@@ -400,7 +314,6 @@ export default function MovimentacoesPage() {
     setSheetOpen(false);
     resetForm();
   }
-
 
   function openCategorias(tab: CategoryManagerTab = "entrada") {
     setCategoriaTab(tab);
@@ -570,25 +483,25 @@ export default function MovimentacoesPage() {
     setSheetOpen(true);
   }
 
-async function handleDelete(id: number) {
-  const confirmar = window.confirm("Deseja excluir esta movimentação?");
-  if (!confirmar) return;
+  async function handleDelete(id: number) {
+    const confirmar = window.confirm("Deseja excluir esta movimentação?");
+    if (!confirmar) return;
 
-  const { error } = await supabase.rpc(
-    "excluir_movimentacao_com_estorno_meta_e_transferencia",
-    {
-      p_movimentacao_id: id,
+    const { error } = await supabase.rpc(
+      "excluir_movimentacao_com_estorno_meta_e_transferencia",
+      {
+        p_movimentacao_id: id,
+      }
+    );
+
+    if (error?.message) {
+      alert(`Erro ao excluir movimentação:\n${error.message}`);
+      return;
     }
-  );
 
-  if (error?.message) {
-    alert(`Erro ao excluir movimentação:\n${error.message}`);
-    return;
+    await carregarMovimentacoes();
+    setSelectedItem(null);
   }
-
-  await carregarMovimentacoes();
-  setSelectedItem(null);
-}
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -677,7 +590,9 @@ async function handleDelete(id: number) {
       }
 
       setMovimentacoes((prev) =>
-        prev.map((item) => (item.id === editingId ? mapDbToUi(data) : item))
+        prev.map((item) =>
+          item.id === editingId ? mapDbToUi(data as DbMovimentacao) : item
+        )
       );
 
       closeSheet();
@@ -695,13 +610,18 @@ async function handleDelete(id: number) {
       return;
     }
 
-    setMovimentacoes((prev) => [mapDbToUi(data), ...prev]);
+    setMovimentacoes((prev) => [
+      mapDbToUi(data as DbMovimentacao),
+      ...prev,
+    ]);
     setActiveTab(formType === "entrada" ? "entradas" : "despesas");
     closeSheet();
   }
 
   const movimentacoesDoMesVisual = useMemo(() => {
-    return movimentacoes.filter((item) => item.data.slice(0, 7) === mesSelecionado);
+    return movimentacoes.filter(
+      (item) => item.data.slice(0, 7) === mesSelecionado
+    );
   }, [mesSelecionado, movimentacoes]);
 
   const movimentacoesDoMesFinanceiro = useMemo(() => {
@@ -784,7 +704,9 @@ async function handleDelete(id: number) {
 
   const listaBase = useMemo(() => {
     let base = movimentacoesDoMesVisual.filter((item) =>
-      activeTab === "entradas" ? item.tipo === "entrada" : item.tipo === "despesa"
+      activeTab === "entradas"
+        ? item.tipo === "entrada"
+        : item.tipo === "despesa"
     );
 
     if (activeTab === "entradas" && filtroCategoriaEntrada !== "todas") {
@@ -849,15 +771,15 @@ async function handleDelete(id: number) {
         ? "Editar entrada"
         : "Editar despesa"
       : formType === "entrada"
-      ? "Nova entrada"
-      : "Nova despesa";
+        ? "Nova entrada"
+        : "Nova despesa";
 
   const sheetDescription =
     editingId !== null
       ? "Atualize os dados da movimentação."
       : formType === "entrada"
-      ? "Preencha os dados para registrar uma nova entrada."
-      : "Preencha os dados para registrar uma nova despesa.";
+        ? "Preencha os dados para registrar uma nova entrada."
+        : "Preencha os dados para registrar uma nova despesa.";
 
   const filtrosAtivos =
     !!search ||
@@ -892,7 +814,11 @@ async function handleDelete(id: number) {
 
             <button
               type="button"
-              onClick={() => openCategorias(activeTab === "entradas" ? "entrada" : "despesa")}
+              onClick={() =>
+                openCategorias(
+                  activeTab === "entradas" ? "entrada" : "despesa"
+                )
+              }
               className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
             >
               <Tag className="mr-2 h-4 w-4" />
@@ -1016,7 +942,9 @@ async function handleDelete(id: number) {
                 {activeTab === "entradas" ? (
                   <select
                     value={filtroCategoriaEntrada}
-                    onChange={(e) => setFiltroCategoriaEntrada(e.target.value)}
+                    onChange={(e) =>
+                      setFiltroCategoriaEntrada(e.target.value)
+                    }
                     className="h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
                   >
                     <option value="todas">Todas as categorias</option>
@@ -1029,7 +957,9 @@ async function handleDelete(id: number) {
                 ) : (
                   <select
                     value={filtroCategoriaDespesa}
-                    onChange={(e) => setFiltroCategoriaDespesa(e.target.value)}
+                    onChange={(e) =>
+                      setFiltroCategoriaDespesa(e.target.value)
+                    }
                     className="h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
                   >
                     <option value="todas">Todas as categorias</option>
@@ -1079,7 +1009,9 @@ async function handleDelete(id: number) {
                     <span className="font-semibold text-slate-900">
                       {listaFiltrada.length}
                     </span>{" "}
-                    {listaFiltrada.length === 1 ? "movimentação" : "movimentações"}
+                    {listaFiltrada.length === 1
+                      ? "movimentação"
+                      : "movimentações"}
                   </>
                 )}
               </div>
@@ -1088,21 +1020,24 @@ async function handleDelete(id: number) {
             {filtrosAtivos && (
               <div className="flex flex-wrap gap-2">
                 {search && <FiltroChip label={`Busca: ${search}`} />}
-                {activeTab === "entradas" && filtroCategoriaEntrada !== "todas" && (
-                  <FiltroChip
-                    label={`Categoria: ${resolveCategoryLabel(filtroCategoriaEntrada, categoriasEntrada)}`}
-                  />
-                )}
-                {activeTab === "despesas" && filtroCategoriaDespesa !== "todas" && (
-                  <FiltroChip
-                    label={`Categoria: ${resolveCategoryLabel(filtroCategoriaDespesa, categoriasDespesa)}`}
-                  />
-                )}
-                {activeTab === "despesas" && filtroPagamentoDespesa !== "todos" && (
-                  <FiltroChip
-                    label={`Pagamento: ${formatTipoPagamento(filtroPagamentoDespesa)}`}
-                  />
-                )}
+                {activeTab === "entradas" &&
+                  filtroCategoriaEntrada !== "todas" && (
+                    <FiltroChip
+                      label={`Categoria: ${resolveCategoryLabel(filtroCategoriaEntrada, categoriasEntrada)}`}
+                    />
+                  )}
+                {activeTab === "despesas" &&
+                  filtroCategoriaDespesa !== "todas" && (
+                    <FiltroChip
+                      label={`Categoria: ${resolveCategoryLabel(filtroCategoriaDespesa, categoriasDespesa)}`}
+                    />
+                  )}
+                {activeTab === "despesas" &&
+                  filtroPagamentoDespesa !== "todos" && (
+                    <FiltroChip
+                      label={`Pagamento: ${formatTipoPagamento(filtroPagamentoDespesa)}`}
+                    />
+                  )}
 
                 <button
                   type="button"
@@ -1147,27 +1082,27 @@ async function handleDelete(id: number) {
                       {itens.map((item) =>
                         item.tipo === "entrada" ? (
                           <CardEntradaPremium
-  key={item.id}
-  item={item}
-  categoryOptions={todasCategorias}
-  onOpen={() => setSelectedItem(item)}
-  onEdit={() => handleEdit(item)}
-  onDelete={() => void handleDelete(item.id)}
-/>
+                            key={item.id}
+                            item={item}
+                            categoryOptions={todasCategorias}
+                            onOpen={() => setSelectedItem(item)}
+                            onEdit={() => handleEdit(item)}
+                            onDelete={() => void handleDelete(item.id)}
+                          />
                         ) : (
                           <CardDespesaPremium
-  key={item.id}
-  item={item}
-  nomeCartao={
-    item.cartaoId
-      ? (cartoesMap.get(item.cartaoId) ?? "-")
-      : "-"
-  }
-  categoryOptions={todasCategorias}
-  onOpen={() => setSelectedItem(item)}
-  onEdit={() => handleEdit(item)}
-  onDelete={() => void handleDelete(item.id)}
-/>
+                            key={item.id}
+                            item={item}
+                            nomeCartao={
+                              item.cartaoId
+                                ? (cartoesMap.get(item.cartaoId) ?? "-")
+                                : "-"
+                            }
+                            categoryOptions={todasCategorias}
+                            onOpen={() => setSelectedItem(item)}
+                            onEdit={() => handleEdit(item)}
+                            onDelete={() => void handleDelete(item.id)}
+                          />
                         )
                       )}
                     </div>
@@ -1180,1089 +1115,61 @@ async function handleDelete(id: number) {
       </PageShell>
 
       {sheetOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]"
-            onClick={closeSheet}
-          />
-
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-4xl border border-slate-200 bg-white shadow-2xl">
-              <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
-                <div>
-                  <h2 className="text-xl font-semibold text-slate-900">
-                    {sheetTitle}
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {sheetDescription}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={closeSheet}
-                  className="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <form
-                onSubmit={handleSubmit}
-                className="flex min-h-0 flex-1 flex-col"
-              >
-                <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-6">
-                  <div className="space-y-5 rounded-3xl border border-slate-200 bg-slate-50/60 p-6">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-900">
-                          Dados principais
-                        </h3>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Registre a movimentação com descrição, valor, data e categoria.
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => openCategorias(formType)}
-                        className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        <Tag className="mr-2 h-4 w-4" />
-                        Gerenciar categorias
-                      </button>
-                    </div>
-
-                    <div className="grid gap-2">
-                      <label className="text-sm font-medium text-slate-700">
-                        Tipo
-                      </label>
-
-                      <div className="flex gap-2 rounded-2xl bg-slate-100 p-1">
-                        <button
-                          type="button"
-                          onClick={() => setFormType("entrada")}
-                          className={
-                            formType === "entrada"
-                              ? "flex-1 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-slate-900 shadow-sm"
-                              : "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900"
-                          }
-                        >
-                          Entrada
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setFormType("despesa")}
-                          className={
-                            formType === "despesa"
-                              ? "flex-1 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-slate-900 shadow-sm"
-                              : "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900"
-                          }
-                        >
-                          Despesa
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="grid gap-2 md:col-span-2">
-                        <label className="text-sm font-medium text-slate-700">
-                          Descrição
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Ex.: Corridas Uber, Mercado, Salário..."
-                          value={formData.descricao}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              descricao: e.target.value,
-                            }))
-                          }
-                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                        />
-                      </div>
-
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700">
-                          Valor
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          placeholder="0,00"
-                          value={formData.valor}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              valor: e.target.value,
-                            }))
-                          }
-                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                        />
-                      </div>
-
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700">
-                          Data
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.data}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              data: e.target.value,
-                            }))
-                          }
-                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                        />
-                      </div>
-
-                      <div className="grid gap-2 md:col-span-2">
-                        <label className="text-sm font-medium text-slate-700">
-                          Categoria
-                        </label>
-                        <select
-                          value={formData.categoria}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              categoria: e.target.value,
-                            }))
-                          }
-                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                        >
-                          <option value="">Selecione</option>
-                          {categoriasAtuais.map((categoria) => (
-                            <option key={categoria.id} value={categoria.id}>
-                              {categoria.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {formType === "despesa" && (
-                    <div className="space-y-5 rounded-3xl border border-slate-200 bg-slate-50/60 p-6">
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-900">
-                          Pagamento
-                        </h3>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Defina como essa despesa afeta o financeiro real.
-                        </p>
-                      </div>
-
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700">
-                          Tipo de pagamento
-                        </label>
-                        <select
-                          value={formData.tipoPagamento}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              tipoPagamento: e.target.value as PaymentType,
-                              cartaoId:
-                                e.target.value === "credito" ? prev.cartaoId : "",
-                              parcelas:
-                                e.target.value === "credito" ? prev.parcelas : "",
-                              primeiraCobranca:
-                                e.target.value === "credito"
-                                  ? prev.primeiraCobranca
-                                  : "",
-                            }))
-                          }
-                          className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                        >
-                          <option value="pix_dinheiro">PIX / Dinheiro</option>
-                          <option value="debito">Cartão de Débito</option>
-                          <option value="credito">Cartão de Crédito</option>
-                        </select>
-                      </div>
-
-                      {formData.tipoPagamento === "credito" && (
-                        <>
-                          <div className="grid gap-2">
-                            <label className="text-sm font-medium text-slate-700">
-                              Cartão
-                            </label>
-                            <select
-                              value={formData.cartaoId}
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  cartaoId: e.target.value,
-                                }))
-                              }
-                              className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                            >
-                              <option value="">Selecione</option>
-                              {cartoes.map((cartao) => (
-                                <option key={cartao.id} value={cartao.id}>
-                                  {cartao.nome}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div className="grid gap-2">
-                              <label className="text-sm font-medium text-slate-700">
-                                Parcelas
-                              </label>
-                              <input
-                                type="number"
-                                min="1"
-                                value={formData.parcelas}
-                                onChange={(e) =>
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    parcelas: e.target.value,
-                                  }))
-                                }
-                                className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                              />
-                            </div>
-
-                            <div className="grid gap-2">
-                              <label className="text-sm font-medium text-slate-700">
-                                Primeira cobrança
-                              </label>
-                              <input
-                                type="month"
-                                value={
-                                  formData.primeiraCobranca || primeiraCobrancaSugerida
-                                }
-                                onChange={(e) =>
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    primeiraCobranca: e.target.value,
-                                  }))
-                                }
-                                className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                            Essa despesa vai aparecer no seu histórico na data da compra,
-                            mas entra na{" "}
-                            <span className="font-semibold">
-                              fatura {formatCompetencia(
-                                formData.primeiraCobranca || primeiraCobrancaSugerida
-                              )}
-                            </span>
-                            .
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-auto flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
-                  <button
-                    type="button"
-                    onClick={closeSheet}
-                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                  >
-                    Cancelar
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95"
-                  >
-                    {editingId !== null ? "Salvar alterações" : "Salvar"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </>
+        <ModalMovimentacao
+          sheetTitle={sheetTitle}
+          sheetDescription={sheetDescription}
+          formType={formType}
+          setFormType={setFormType}
+          formData={formData}
+          setFormData={setFormData}
+          categoriasAtuais={categoriasAtuais}
+          cartoes={cartoes}
+          editingId={editingId}
+          primeiraCobrancaSugerida={primeiraCobrancaSugerida}
+          onClose={closeSheet}
+          onSubmit={handleSubmit}
+          onOpenCategorias={openCategorias}
+        />
       )}
 
       {categoriasOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-[2px]"
-            onClick={closeCategorias}
-          />
-
-          <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
-            <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-4xl border border-slate-200 bg-white shadow-2xl">
-              <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">
-                    Gerenciar categorias
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold text-slate-900">
-                    Categorias de movimentações
-                  </h3>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={closeCategorias}
-                  className="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-                <div className="space-y-6">
-                  <div className="inline-flex w-fit rounded-2xl bg-slate-100 p-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCategoriaTab("entrada");
-                        cancelEditCategoria();
-                      }}
-                      className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                        categoriaTab === "entrada"
-                          ? "bg-white text-slate-900 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      Entradas
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCategoriaTab("despesa");
-                        cancelEditCategoria();
-                      }}
-                      className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                        categoriaTab === "despesa"
-                          ? "bg-white text-slate-900 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      Despesas
-                    </button>
-                  </div>
-
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50/60 p-5">
-                    <h4 className="text-sm font-semibold text-slate-900">
-                      Nova categoria
-                    </h4>
-                    {loadingCategorias ? (
-                      <p className="mt-2 text-sm text-slate-500">Carregando categorias...</p>
-                    ) : null}
-                    <p className="mt-1 text-sm text-slate-500">
-                      As categorias desta tela ficam salvas no Supabase e vinculadas ao seu usuário.
-                    </p>
-
-                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                      <input
-                        type="text"
-                        value={novaCategoriaNome}
-                        onChange={(e) => setNovaCategoriaNome(e.target.value)}
-                        placeholder={`Nome da categoria de ${categoriaTab === "entrada" ? "entrada" : "despesa"}`}
-                        className="h-12 flex-1 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={handleAddCategoria}
-                        className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-900 px-5 text-sm font-medium text-white transition hover:opacity-95"
-                      >
-                        <Plus className="mr-2 h-4 w-4" />
-                        Adicionar
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {categoriasGerenciadasAtuais.map((categoria) => {
-                      const emEdicao = editingCategoriaId === categoria.id;
-
-                      return (
-                        <div
-                          key={categoria.id}
-                          className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
-                        >
-                          {emEdicao ? (
-                            <div className="space-y-3">
-                              <input
-                                type="text"
-                                value={editingCategoriaNome}
-                                onChange={(e) => setEditingCategoriaNome(e.target.value)}
-                                className="h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
-                              />
-
-                              <div className="flex flex-wrap justify-end gap-2">
-                                <button
-                                  type="button"
-                                  onClick={cancelEditCategoria}
-                                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                                >
-                                  Cancelar
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={handleSaveCategoriaEdit}
-                                  className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:opacity-95"
-                                >
-                                  <Check className="mr-2 h-4 w-4" />
-                                  Salvar
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-900">
-                                  {categoria.label}
-                                </p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Categoria sincronizada com o Supabase
-                                </p>
-                              </div>
-
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => startEditCategoria(categoria)}
-                                  className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                                >
-                                  <Pencil className="mr-2 h-4 w-4" />
-                                  Editar
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteCategoria(categoria)}
-                                  className="inline-flex items-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-100"
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Excluir
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
+        <ModalCategorias
+          categoriaTab={categoriaTab}
+          setCategoriaTab={setCategoriaTab}
+          categoriasGerenciadasAtuais={categoriasGerenciadasAtuais}
+          loadingCategorias={loadingCategorias}
+          novaCategoriaNome={novaCategoriaNome}
+          setNovaCategoriaNome={setNovaCategoriaNome}
+          editingCategoriaId={editingCategoriaId}
+          editingCategoriaNome={editingCategoriaNome}
+          setEditingCategoriaNome={setEditingCategoriaNome}
+          onClose={closeCategorias}
+          onAddCategoria={handleAddCategoria}
+          onStartEditCategoria={startEditCategoria}
+          onCancelEditCategoria={cancelEditCategoria}
+          onSaveCategoriaEdit={handleSaveCategoriaEdit}
+          onDeleteCategoria={handleDeleteCategoria}
+        />
       )}
 
       {selectedItem && (
-        <>
-          <div
-            className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-[2px]"
-            onClick={() => setSelectedItem(null)}
-          />
-
-          <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
-            <div className="w-full max-w-2xl rounded-4xl border border-slate-200 bg-white shadow-2xl">
-              <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">
-                    Detalhes da movimentação
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold text-slate-900">
-                    {selectedItem.descricao}
-                  </h3>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedItem(null)}
-                  className="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="space-y-6 px-6 py-6">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <DetalheItem
-                    label="Tipo"
-                    value={selectedItem.tipo === "entrada" ? "Entrada" : "Despesa"}
-                  />
-                  <DetalheItem
-                    label="Valor"
-                    value={formatCurrency(selectedItem.valor)}
-                    destaque={
-                      selectedItem.tipo === "entrada"
-                        ? "text-emerald-600"
-                        : "text-rose-600"
-                    }
-                  />
-                  <DetalheItem label="Data" value={formatDate(selectedItem.data)} />
-                  <DetalheItem
-                    label="Categoria"
-                    value={resolveCategoryLabel(selectedItem.categoria, todasCategorias)}
-                  />
-                </div>
-
-                {selectedItem.tipo === "despesa" && (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                    <h4 className="text-sm font-semibold text-slate-900">
-                      Pagamento
-                    </h4>
-
-                    <div className="mt-4 grid gap-4 md:grid-cols-2">
-                      <DetalheItem
-                        label="Tipo de pagamento"
-                        value={formatTipoPagamento(
-                          selectedItem.tipoPagamento ?? "pix_dinheiro"
-                        )}
-                      />
-
-                      {selectedItem.tipoPagamento === "credito" && (
-                        <>
-                          <DetalheItem
-                            label="Cartão"
-                            value={
-                              selectedItem.cartaoId
-                                ? (cartoesMap.get(selectedItem.cartaoId) ?? "-")
-                                : "-"
-                            }
-                          />
-                          <DetalheItem
-                            label="Parcelas"
-                            value={
-                              selectedItem.parcelas
-                                ? `${selectedItem.parcelas}x`
-                                : "-"
-                            }
-                          />
-                          <DetalheItem
-                            label="Competência da fatura"
-                            value={formatCompetencia(
-                              selectedItem.primeiraCobranca ?? ""
-                            )}
-                          />
-                          <DetalheItem
-                            label="Valor da parcela"
-                            value={
-                              selectedItem.parcelas
-                                ? formatCurrency(
-                                    selectedItem.valor / selectedItem.parcelas
-                                  )
-                                : "-"
-                            }
-                          />
-                        </>
-                      )}
-                    </div>
-
-                    {selectedItem.tipoPagamento === "credito" && (
-                      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                        Essa compra aparece na data em que foi feita, mas afeta o
-                        financeiro na{" "}
-                        <span className="font-semibold">
-                          fatura {formatCompetencia(selectedItem.primeiraCobranca ?? "")}
-                        </span>
-                        .
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
-                <button
-                  type="button"
-                  onClick={() => setSelectedItem(null)}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                >
-                  Fechar
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const item = selectedItem;
-                    setSelectedItem(null);
-                    handleEdit(item);
-                  }}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                >
-                  Editar
-                </button>
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const id = selectedItem.id;
-                    setSelectedItem(null);
-                    await handleDelete(id);
-                  }}
-                  className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-rose-700"
-                >
-                  Excluir
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
+        <ModalDetalhes
+          selectedItem={selectedItem}
+          todasCategorias={todasCategorias}
+          cartoesMap={cartoesMap}
+          onClose={() => setSelectedItem(null)}
+          onEdit={() => {
+            const item = selectedItem;
+            setSelectedItem(null);
+            handleEdit(item);
+          }}
+          onDelete={() => {
+            const id = selectedItem.id;
+            setSelectedItem(null);
+            void handleDelete(id);
+          }}
+        />
       )}
     </>
   );
-}
-
-function mapDbToUi(item: DbMovimentacao): Movimentacao {
-  return {
-    id: item.id,
-    created_at: item.created_at,
-    tipo: item.tipo,
-    descricao: item.descricao,
-    categoria: item.categoria,
-    valor: Number(item.valor),
-    data: item.data,
-    tipoPagamento: item.tipo_pagamento,
-    cartaoId: item.cartao_id,
-    parcelas: item.parcelas,
-    primeiraCobranca: item.primeira_cobranca,
-    metaId: item.meta_id,
-    metaAporteId: item.meta_aporte_id,
-    rvTransferenciaId: item.rv_transferencia_id,
-  };
-}
-
-function FiltroChip({ label }: { label: string }) {
-  return (
-    <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700">
-      {label}
-    </span>
-  );
-}
-
-function DetalheItem({
-  label,
-  value,
-  destaque,
-}: {
-  label: string;
-  value: string;
-  destaque?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-        {label}
-      </p>
-      <p className={`mt-2 text-sm font-semibold text-slate-900 ${destaque ?? ""}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function ResumoCard({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: string;
-  tone: "neutral" | "success" | "danger" | "warning";
-}) {
-  const toneMap = {
-    neutral: {
-      wrapper: "border-slate-200 bg-gradient-to-br from-slate-50 to-white",
-      text: "text-slate-900",
-      icon: "text-slate-700",
-    },
-    success: {
-      wrapper: "border-emerald-100 bg-gradient-to-br from-emerald-50 to-white",
-      text: "text-emerald-600",
-      icon: "text-emerald-600",
-    },
-    danger: {
-      wrapper: "border-rose-100 bg-gradient-to-br from-rose-50 to-white",
-      text: "text-rose-500",
-      icon: "text-rose-500",
-    },
-    warning: {
-      wrapper: "border-amber-100 bg-gradient-to-br from-amber-50 to-white",
-      text: "text-amber-600",
-      icon: "text-amber-600",
-    },
-  };
-
-  const current = toneMap[tone];
-
-  return (
-    <div
-      className={`overflow-hidden rounded-[28px] border p-6 shadow-sm ${current.wrapper}`}
-    >
-      <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
-        <Wallet className={`h-4 w-4 ${current.icon}`} />
-        {title}
-      </div>
-      <p className={`mt-3 text-3xl font-semibold tracking-tight ${current.text}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function AcaoItem({
-  onEdit,
-  onDelete,
-}: {
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <details className="relative">
-      <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-2xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
-        <MoreHorizontal className="h-4 w-4" />
-      </summary>
-
-      <div className="absolute right-0 top-11 z-10 w-40 rounded-2xl border border-slate-200 bg-white p-1 shadow-xl">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="flex w-full items-center rounded-xl px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-100"
-        >
-          <Pencil className="mr-2 h-4 w-4" />
-          Editar
-        </button>
-
-        <button
-          type="button"
-          onClick={onDelete}
-          className="flex w-full items-center rounded-xl px-3 py-2.5 text-sm text-red-600 transition hover:bg-red-50"
-        >
-          <Trash2 className="mr-2 h-4 w-4" />
-          Excluir
-        </button>
-      </div>
-    </details>
-  );
-}
-
-function CardEntradaPremium({
-  item,
-  categoryOptions,
-  onEdit,
-  onDelete,
-  onOpen,
-}: {
-  item: Movimentacao;
-  categoryOptions: CategoryOption[];
-  onEdit: () => void;
-  onDelete: () => void;
-  onOpen: () => void;
-}) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
-      className="group w-full cursor-pointer rounded-[28px] border border-slate-200/80 bg-white px-5 py-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md md:px-6"
-    >
-      <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
-          <ArrowUpRight className="h-5 w-5" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold text-slate-900">
-                {item.descricao}
-              </p>
-
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {formatDate(item.data)}
-                </span>
-
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                  <Tag className="h-3.5 w-3.5" />
-                  {resolveCategoryLabel(item.categoria, categoryOptions)}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <div className="text-left sm:text-right">
-                <p className="text-xl font-semibold tracking-tight text-emerald-600">
-                  + {formatCurrency(item.valor)}
-                </p>
-                <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                  recebimento
-                </p>
-              </div>
-
-              <div
-                className="opacity-100 transition md:opacity-0 md:group-hover:opacity-100"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <AcaoItem onEdit={onEdit} onDelete={onDelete} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CardDespesaPremium({
-  item,
-  nomeCartao,
-  categoryOptions,
-  onEdit,
-  onDelete,
-  onOpen,
-}: {
-  item: Movimentacao;
-  nomeCartao: string;
-  categoryOptions: CategoryOption[];
-  onEdit: () => void;
-  onDelete: () => void;
-  onOpen: () => void;
-}) {
-  const valorParcela =
-    item.tipoPagamento === "credito" && item.parcelas
-      ? item.valor / item.parcelas
-      : null;
-
-  const isCredito = item.tipoPagamento === "credito";
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
-      className="group w-full cursor-pointer rounded-[28px] border border-slate-200/80 bg-white px-5 py-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md md:px-6"
-    >
-      <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 ring-1 ring-rose-100">
-          <ArrowDownLeft className="h-5 w-5" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold text-slate-900">
-                {item.descricao}
-              </p>
-
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {formatDate(item.data)}
-                </span>
-
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                  <Tag className="h-3.5 w-3.5" />
-                  {resolveCategoryLabel(item.categoria, categoryOptions)}
-                </span>
-
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
-                  {formatTipoPagamento(item.tipoPagamento ?? "pix_dinheiro")}
-                </span>
-
-                {isCredito && item.primeiraCobranca && (
-                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
-                    Fatura {formatCompetencia(item.primeiraCobranca)}
-                  </span>
-                )}
-              </div>
-
-              {isCredito && (
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                    <CreditCard className="h-3.5 w-3.5" />
-                    {nomeCartao}
-                  </span>
-
-                  {item.parcelas && (
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                      {item.parcelas}x
-                    </span>
-                  )}
-
-                  {valorParcela && (
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                      Parcela {formatCurrency(valorParcela)}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-start gap-3">
-              <div className="text-left sm:text-right">
-                <p className="text-xl font-semibold tracking-tight text-rose-600">
-                  - {formatCurrency(item.valor)}
-                </p>
-
-                {isCredito ? (
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    não afeta o saldo agora
-                  </p>
-                ) : (
-                  <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                    saída
-                  </p>
-                )}
-              </div>
-
-              <div
-                className="opacity-100 transition md:opacity-0 md:group-hover:opacity-100"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <AcaoItem onEdit={onEdit} onDelete={onDelete} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EmptyStatePremium({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-[28px] border border-dashed border-slate-200 bg-slate-50/70 px-6 py-14 text-center">
-      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-        <Wallet className="h-6 w-6 text-slate-400" />
-      </div>
-
-      <h3 className="mt-4 text-base font-semibold text-slate-800">{title}</h3>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-        {description}
-      </p>
-    </div>
-  );
-}
-
-function resolveCategoryLabel(
-  categoriaId: string,
-  options?:
-    | Array<{ id: string; label: string }>
-    | Array<{ slug: string; nome: string }>
-) {
-  if (!categoriaId) return "Sem categoria";
-
-  if (!options) return categoriaId;
-
-  const found = options.find((item) =>
-    "id" in item ? item.id === categoriaId : item.slug === categoriaId
-  );
-
-  if (!found) return categoriaId;
-
-  return "label" in found ? found.label : found.nome;
-}
-
-function slugify(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
-function getMesAtual() {
-  const hoje = new Date();
-  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function calcularPrimeiraCobranca(
-  dataCompra: string,
-  cartaoId: number,
-  cartoes: Cartao[]
-) {
-  const cartao = cartoes.find((item) => item.id === cartaoId);
-  if (!cartao || !dataCompra) return "";
-
-  const [ano, mes, dia] = dataCompra.split("-").map(Number);
-  if (!ano || !mes || !dia) return "";
-
-  let anoCobranca = ano;
-  let mesCobranca = mes;
-
-  if (dia > cartao.fechamentoDia) {
-    if (mes === 12) {
-      anoCobranca = ano + 1;
-      mesCobranca = 1;
-    } else {
-      mesCobranca = mes + 1;
-    }
-  }
-
-  return `${anoCobranca}-${String(mesCobranca).padStart(2, "0")}`;
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
-}
-
-function formatDate(dateString: string) {
-  if (!dateString) return "--/--/----";
-  const [year, month, day] = dateString.split("-");
-  if (!year || !month || !day) return dateString;
-  return `${day}/${month}/${year}`;
-}
-
-function formatCompetencia(value: string) {
-  if (!value) return "-";
-  const [year, month] = value.split("-");
-  if (!year || !month) return value;
-  return `${month}/${year}`;
-}
-
-function formatTipoPagamento(tipo: PaymentType) {
-  if (tipo === "credito") return "Cartão de Crédito";
-  if (tipo === "debito") return "Cartão de Débito";
-  return "PIX / Dinheiro";
-}
-
-function getDataLabel(data: string) {
-  const hoje = new Date();
-  const hojeFormatado = hoje.toISOString().slice(0, 10);
-
-  const ontem = new Date();
-  ontem.setDate(hoje.getDate() - 1);
-  const ontemFormatado = ontem.toISOString().slice(0, 10);
-
-  if (data === hojeFormatado) return "Hoje";
-  if (data === ontemFormatado) return "Ontem";
-
-  return formatDate(data);
 }

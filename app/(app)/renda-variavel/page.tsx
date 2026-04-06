@@ -1,157 +1,40 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { TIPO_RV_LABEL, parseTipoFromDescricao,  type TipoRvLancamento, } from "./_lib/tipos";
+import { TIPO_RV_LABEL, parseTipoFromDescricao, type TipoRvLancamento } from "./_lib/tipos";
+import type {
+  LancamentoRow,
+  TransferenciaRow,
+  LancamentoHistoricoRow,
+  TransferenciaHistoricoRow,
+  SerieMensal,
+  PageProps,
+} from "./_lib/types";
+import {
+  formatMoney,
+  formatDate,
+  stripTipoPrefix,
+  getMesAtual,
+  getRangeFromMes,
+  getMesAnterior,
+  formatCompetenciaLabel,
+  formatDelta,
+  getUltimosMeses,
+  getRangeFromMeses,
+} from "./_lib/utils";
+import { HistoricoSection } from "./_components/historico-section";
+import { ResumoCards } from "./_components/resumo-cards";
+import { LancamentosSection } from "./_components/lancamentos-section";
 import {
   ArrowRightLeft,
   AlertTriangle,
   Plus,
   Settings2,
-  Wallet,
-  TrendingUp,
-  TrendingDown,
-  PiggyBank,
-  Clock3,
   Sparkles,
-  Pencil,
-  Trash2,
+  Clock3,
   CalendarRange,
+  TrendingUp,
 } from "lucide-react";
-
-type LancamentoRow = {
-  id: string;
-  data: string;
-  descricao: string;
-  perfil: string | null;
-  valor_recebido: number | null;
-  custo_total: number | null;
-  lucro_liquido: number | null;
-  lucro_por_hora: number | null;
-};
-
-type TransferenciaRow = {
-  valor: number | null;
-};
-
-type LancamentoHistoricoRow = {
-  data: string;
-  descricao: string;
-  valor_recebido: number | null;
-  custo_total: number | null;
-};
-
-type TransferenciaHistoricoRow = {
-  data_transferencia: string;
-  valor: number | null;
-};
-
-type SerieMensal = {
-  mes: string;
-  receitas: number;
-  aportes: number;
-  custos: number;
-  transferencias: number;
-  lucroLiquido: number;
-};
-
-function formatMoney(value: number) {
-  return value.toFixed(2);
-}
-
-function formatDate(value: string) {
-  if (!value) return "—";
-
-  const [ano, mes, dia] = value.split("-");
-  if (!ano || !mes || !dia) return value;
-
-  return `${dia}/${mes}/${ano}`;
-}
-
-function stripTipoPrefix(descricao: string) {
-  if (!descricao) return "";
-  return descricao.replace(/^\[(.+?)\]\s*/, "").trim();
-}
-
-function getMesAtual() {
-  const agora = new Date();
-  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function getRangeFromMes(mes: string) {
-  const [ano, mesNumero] = mes.split("-").map(Number);
-
-  const inicio = new Date(ano, mesNumero - 1, 1);
-  const fim = new Date(ano, mesNumero, 0);
-
-  return {
-    inicioStr: inicio.toISOString().slice(0, 10),
-    fimStr: fim.toISOString().slice(0, 10),
-  };
-}
-
-function formatCompetenciaLabel(mes: string) {
-  const [ano, mesNumero] = mes.split("-");
-  if (!ano || !mesNumero) return mes;
-  return `${mesNumero}/${ano}`;
-}
-
-function getMesAnterior(mes: string) {
-  const [ano, mesNumero] = mes.split("-").map(Number);
-
-  if (!ano || !mesNumero) return getMesAtual();
-
-  const referencia = new Date(ano, mesNumero - 1, 1);
-  referencia.setMonth(referencia.getMonth() - 1);
-
-  return `${referencia.getFullYear()}-${String(referencia.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function formatDelta(valorAtual: number, valorAnterior: number) {
-  const diferenca = valorAtual - valorAnterior;
-  const base = Math.abs(valorAnterior);
-  const percentual = base > 0 ? (diferenca / base) * 100 : null;
-
-  return {
-    diferenca,
-    percentual,
-    isPositivo: diferenca >= 0,
-  };
-}
-
-function getUltimosMeses(referencia: string, quantidade: number) {
-  const [ano, mes] = referencia.split("-").map(Number);
-  const base = new Date(ano, mes - 1, 1);
-  const meses: string[] = [];
-
-  for (let i = quantidade - 1; i >= 0; i -= 1) {
-    const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
-    meses.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  }
-
-  return meses;
-}
-
-function getRangeFromMeses(meses: string[]) {
-  const primeiro = meses[0];
-  const ultimo = meses[meses.length - 1];
-  const inicio = `${primeiro}-01`;
-
-  const [anoFim, mesFim] = ultimo.split("-").map(Number);
-  const ultimoDia = new Date(anoFim, mesFim, 0).getDate();
-  const fim = `${ultimo}-${String(ultimoDia).padStart(2, "0")}`;
-
-  return { inicio, fim };
-}
-
-type FiltroTipo = "todos" | TipoRvLancamento;
-
-type PageProps = {
-  searchParams?: Promise<{
-    mes?: string;
-    tipo?: FiltroTipo;
-    meta?: string;
-  }>;
-};
 
 export default async function RendaVariavelPage({ searchParams }: PageProps) {
   const resolvedSearchParams = (await searchParams) ?? {};
@@ -216,7 +99,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
     throw new Error(erroMes.message);
   }
 
-    const { data: lancamentosMesAnterior, error: erroMesAnterior } = await supabase
+  const { data: lancamentosMesAnterior, error: erroMesAnterior } = await supabase
     .from("rv_lancamentos")
     .select("descricao, valor_recebido, custo_total")
     .eq("user_id", user.id)
@@ -238,7 +121,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
     throw new Error(erroTransferencias.message);
   }
 
-    const { data: transferenciasMesAnterior, error: erroTransferenciasAnterior } = await supabase
+  const { data: transferenciasMesAnterior, error: erroTransferenciasAnterior } = await supabase
     .from("rv_transferencias")
     .select("valor")
     .eq("user_id", user.id)
@@ -248,7 +131,6 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   if (erroTransferenciasAnterior) {
     throw new Error(erroTransferenciasAnterior.message);
   }
-
 
   const { data: lancamentosRecentes, error: erroRecentes } = await supabase
     .from("rv_lancamentos")
@@ -273,75 +155,63 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   const listaTransferenciasMesAnterior = (transferenciasMesAnterior ?? []) as TransferenciaRow[];
 
   const mesesHistorico = getUltimosMeses(mesSelecionado, 12);
-const { inicio: inicioHistorico, fim: fimHistorico } = getRangeFromMeses(mesesHistorico);
+  const { inicio: inicioHistorico, fim: fimHistorico } = getRangeFromMeses(mesesHistorico);
 
-const { data: lancamentosHistorico, error: erroHistoricoLancamentos } = await supabase
-  .from("rv_lancamentos")
-  .select("data, descricao, valor_recebido, custo_total")
-  .eq("user_id", user.id)
-  .gte("data", inicioHistorico)
-  .lte("data", fimHistorico);
+  const { data: lancamentosHistorico, error: erroHistoricoLancamentos } = await supabase
+    .from("rv_lancamentos")
+    .select("data, descricao, valor_recebido, custo_total")
+    .eq("user_id", user.id)
+    .gte("data", inicioHistorico)
+    .lte("data", fimHistorico);
 
-if (erroHistoricoLancamentos) {
-  throw new Error(erroHistoricoLancamentos.message);
-}
+  if (erroHistoricoLancamentos) {
+    throw new Error(erroHistoricoLancamentos.message);
+  }
 
-const { data: transferenciasHistorico, error: erroHistoricoTransferencias } = await supabase
-  .from("rv_transferencias")
-  .select("data_transferencia, valor")
-  .eq("user_id", user.id)
-  .gte("data_transferencia", inicioHistorico)
-  .lte("data_transferencia", fimHistorico);
+  const { data: transferenciasHistorico, error: erroHistoricoTransferencias } = await supabase
+    .from("rv_transferencias")
+    .select("data_transferencia, valor")
+    .eq("user_id", user.id)
+    .gte("data_transferencia", inicioHistorico)
+    .lte("data_transferencia", fimHistorico);
 
-if (erroHistoricoTransferencias) {
-  throw new Error(erroHistoricoTransferencias.message);
-}
+  if (erroHistoricoTransferencias) {
+    throw new Error(erroHistoricoTransferencias.message);
+  }
 
   const transferidoMesLegado = listaTransferencias.reduce(
-  (acc, item) => acc + Number(item.valor ?? 0),
-  0
-);
+    (acc, item) => acc + Number(item.valor ?? 0),
+    0
+  );
 
-const totais = {
-  receitas: 0,
-  aportes: 0,
-  custos: 0,
-  transferencias: 0,
-};
+  const totais = { receitas: 0, aportes: 0, custos: 0, transferencias: 0 };
+  const totaisMesAnterior = { receitas: 0, aportes: 0, custos: 0, transferencias: 0 };
 
-const totaisMesAnterior = {
-  receitas: 0,
-  aportes: 0,
-  custos: 0,
-  transferencias: 0,
-};
+  for (const item of listaMes) {
+    const tipo = parseTipoFromDescricao(item.descricao ?? "");
+    const recebido = Number(item.valor_recebido ?? 0);
+    const custo = Number(item.custo_total ?? 0);
 
-
-for (const item of listaMes) {
-  const tipo = parseTipoFromDescricao(item.descricao ?? "");
-  const recebido = Number(item.valor_recebido ?? 0);
-  const custo = Number(item.custo_total ?? 0);
-
-  if (tipo === "receita_bruta") totais.receitas += recebido;
-  else if (tipo === "aporte_cpf_para_pj") totais.aportes += recebido;
-  else if (tipo === "transferencia_para_cpf") totais.transferencias += custo;
-  else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") totais.custos += custo;
-}
+    if (tipo === "receita_bruta") totais.receitas += recebido;
+    else if (tipo === "aporte_cpf_para_pj") totais.aportes += recebido;
+    else if (tipo === "transferencia_para_cpf") totais.transferencias += custo;
+    else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") totais.custos += custo;
+  }
 
   for (const item of listaMesAnterior) {
-  const tipo = parseTipoFromDescricao(item.descricao ?? "");
-  const recebido = Number(item.valor_recebido ?? 0);
-  const custo = Number(item.custo_total ?? 0);
+    const tipo = parseTipoFromDescricao(item.descricao ?? "");
+    const recebido = Number(item.valor_recebido ?? 0);
+    const custo = Number(item.custo_total ?? 0);
 
-  if (tipo === "receita_bruta") totaisMesAnterior.receitas += recebido;
-  else if (tipo === "aporte_cpf_para_pj") totaisMesAnterior.aportes += recebido;
-  else if (tipo === "transferencia_para_cpf") totaisMesAnterior.transferencias += custo;
-  else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") totaisMesAnterior.custos += custo;
-}
+    if (tipo === "receita_bruta") totaisMesAnterior.receitas += recebido;
+    else if (tipo === "aporte_cpf_para_pj") totaisMesAnterior.aportes += recebido;
+    else if (tipo === "transferencia_para_cpf") totaisMesAnterior.transferencias += custo;
+    else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") totaisMesAnterior.custos += custo;
+  }
 
-const lucroLiquidoMes =
-  totais.receitas + totais.aportes - totais.custos - totais.transferencias;
-    const transferidoMesAnteriorLegado = listaTransferenciasMesAnterior.reduce(
+  const lucroLiquidoMes =
+    totais.receitas + totais.aportes - totais.custos - totais.transferencias;
+  const transferidoMesAnteriorLegado = listaTransferenciasMesAnterior.reduce(
     (acc, item) => acc + Number(item.valor ?? 0),
     0
   );
@@ -350,13 +220,12 @@ const lucroLiquidoMes =
     totaisMesAnterior.aportes -
     totaisMesAnterior.custos -
     totaisMesAnterior.transferencias;
-  const transferenciasTotaisMes =
-    totais.transferencias + transferidoMesLegado;
+  const transferenciasTotaisMes = totais.transferencias + transferidoMesLegado;
   const transferenciasTotaisMesAnterior =
     totaisMesAnterior.transferencias + transferidoMesAnteriorLegado;
 
-const mediaPorLancamento =
-  listaMes.length > 0 ? lucroLiquidoMes / listaMes.length : 0;
+  const mediaPorLancamento =
+    listaMes.length > 0 ? lucroLiquidoMes / listaMes.length : 0;
 
   const totalHorasEstimadas = listaMes.reduce((acc, item) => {
     const lucro = Number(item.lucro_liquido ?? 0);
@@ -394,17 +263,17 @@ const mediaPorLancamento =
       : lucroLiquidoMes;
 
   const resumo = {
-  saldoCarteira: Math.max(lucroLiquidoMes, 0),
-  recebidoMes: totais.receitas,
-  aportesMes: totais.aportes,
-  custosMes: totais.custos,
-  lucroLiquidoMes,
-  transferidoMes: transferenciasTotaisMes,
-  totalHorasEstimadas,
-  mediaPorLancamento,
-  lucroPorHora,
-  projecaoMes,
-};
+    saldoCarteira: Math.max(lucroLiquidoMes, 0),
+    recebidoMes: totais.receitas,
+    aportesMes: totais.aportes,
+    custosMes: totais.custos,
+    lucroLiquidoMes,
+    transferidoMes: transferenciasTotaisMes,
+    totalHorasEstimadas,
+    mediaPorLancamento,
+    lucroPorHora,
+    projecaoMes,
+  };
 
   const comparativo = {
     receitas: formatDelta(totais.receitas, totaisMesAnterior.receitas),
@@ -416,214 +285,97 @@ const mediaPorLancamento =
 
   const transferenciaAcimaDoSaldo = transferenciasTotaisMes > lucroLiquidoMes;
   const metaMensal =
-  Number.isFinite(metaParam) && metaParam > 0
-    ? metaParam
-    : Math.max(lucroLiquidoMesAnterior, 0);
+    Number.isFinite(metaParam) && metaParam > 0
+      ? metaParam
+      : Math.max(lucroLiquidoMesAnterior, 0);
 
-const progressoMeta = metaMensal > 0 ? (lucroLiquidoMes / metaMensal) * 100 : 0;
-const faltaParaMeta = Math.max(metaMensal - lucroLiquidoMes, 0);
-const excedenteMeta = Math.max(lucroLiquidoMes - metaMensal, 0);
+  const progressoMeta = metaMensal > 0 ? (lucroLiquidoMes / metaMensal) * 100 : 0;
+  const faltaParaMeta = Math.max(metaMensal - lucroLiquidoMes, 0);
+  const excedenteMeta = Math.max(lucroLiquidoMes - metaMensal, 0);
 
-const diasRestantes = isMesAtual ? Math.max(ultimoDiaDoMes - diaAtual, 0) : 0;
-const ritmoDiarioNecessario = diasRestantes > 0 ? faltaParaMeta / diasRestantes : 0;
+  const diasRestantes = isMesAtual ? Math.max(ultimoDiaDoMes - diaAtual, 0) : 0;
+  const ritmoDiarioNecessario = diasRestantes > 0 ? faltaParaMeta / diasRestantes : 0;
 
-const saldoLiquidoAposTransferencias = Math.max(
-  lucroLiquidoMes - transferenciasTotaisMes,
-  0
-);
+  const saldoLiquidoAposTransferencias = Math.max(
+    lucroLiquidoMes - transferenciasTotaisMes,
+    0
+  );
 
-const reservaSugerida = saldoLiquidoAposTransferencias * 0.2;
-const transferenciaSeguraSugerida = Math.max(
-  saldoLiquidoAposTransferencias - reservaSugerida,
-  0
-);
+  const reservaSugerida = saldoLiquidoAposTransferencias * 0.2;
+  const transferenciaSeguraSugerida = Math.max(
+    saldoLiquidoAposTransferencias - reservaSugerida,
+    0
+  );
 
+  const lancamentosComTipo = listaRecentes.map((item) => ({
+    id: item.id,
+    data: item.data,
+    descricao: stripTipoPrefix(item.descricao ?? ""),
+    tipo: parseTipoFromDescricao(item.descricao ?? ""),
+    perfil: item.perfil ?? "—",
+    recebido: Number(item.valor_recebido ?? 0),
+    custo: Number(item.custo_total ?? 0),
+    lucro: Number(item.lucro_liquido ?? 0),
+  }));
 
-const lancamentosComTipo = listaRecentes.map((item) => ({
-  id: item.id,
-  data: item.data,
-  descricao: stripTipoPrefix(item.descricao ?? ""),
-  tipo: parseTipoFromDescricao(item.descricao ?? ""),
-  perfil: item.perfil ?? "—",
-  recebido: Number(item.valor_recebido ?? 0),
-  custo: Number(item.custo_total ?? 0),
-  lucro: Number(item.lucro_liquido ?? 0),
-}));
+  const lancamentos =
+    tipoSelecionado === "todos"
+      ? lancamentosComTipo
+      : lancamentosComTipo.filter((item) => item.tipo === tipoSelecionado);
 
-const lancamentos =
-  tipoSelecionado === "todos"
-    ? lancamentosComTipo
-    : lancamentosComTipo.filter((item) => item.tipo === tipoSelecionado);
-    const historicoLanc = (lancamentosHistorico ?? []) as LancamentoHistoricoRow[];
-const historicoTransf = (transferenciasHistorico ?? []) as TransferenciaHistoricoRow[];
+  const historicoLanc = (lancamentosHistorico ?? []) as LancamentoHistoricoRow[];
+  const historicoTransf = (transferenciasHistorico ?? []) as TransferenciaHistoricoRow[];
 
-const serieMap = new Map<string, SerieMensal>();
-for (const mes of mesesHistorico) {
-  serieMap.set(mes, {
-    mes,
-    receitas: 0,
-    aportes: 0,
-    custos: 0,
-    transferencias: 0,
-    lucroLiquido: 0,
-  });
-}
-
-for (const item of historicoLanc) {
-  const mes = item.data?.slice(0, 7);
-  if (!mes || !serieMap.has(mes)) continue;
-
-  const row = serieMap.get(mes)!;
-  const tipo = parseTipoFromDescricao(item.descricao ?? "");
-  const recebido = Number(item.valor_recebido ?? 0);
-  const custo = Number(item.custo_total ?? 0);
-
-  if (tipo === "receita_bruta") row.receitas += recebido;
-  else if (tipo === "aporte_cpf_para_pj") row.aportes += recebido;
-  else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") row.custos += custo;
-  else if (tipo === "transferencia_para_cpf") row.transferencias += custo;
-}
-
-for (const item of historicoTransf) {
-  const mes = item.data_transferencia?.slice(0, 7);
-  if (!mes || !serieMap.has(mes)) continue;
-
-  const row = serieMap.get(mes)!;
-  row.transferencias += Number(item.valor ?? 0);
-}
-
-const serieMensal = Array.from(serieMap.values()).map((row) => ({
-  ...row,
-  lucroLiquido: row.receitas + row.aportes - row.custos - row.transferencias,
-}));
-
-const serieComDados = serieMensal.filter(
-  (m) => m.receitas > 0 || m.aportes > 0 || m.custos > 0 || m.transferencias > 0
-);
-
-const melhorMes =
-  serieComDados.length > 0
-    ? [...serieComDados].sort((a, b) => b.lucroLiquido - a.lucroLiquido)[0]
-    : null;
-
-const piorMes =
-  serieComDados.length > 0
-    ? [...serieComDados].sort((a, b) => a.lucroLiquido - b.lucroLiquido)[0]
-    : null;
-
-const mediaLucro =
-  serieComDados.length > 0
-    ? serieComDados.reduce((acc, m) => acc + m.lucroLiquido, 0) / serieComDados.length
-    : 0;
-
-const ultimos3 = serieMensal.slice(-3);
-const anteriores3 = serieMensal.slice(-6, -3);
-
-const mediaUltimos3 =
-  ultimos3.length > 0 ? ultimos3.reduce((a, m) => a + m.lucroLiquido, 0) / ultimos3.length : 0;
-const mediaAnteriores3 =
-  anteriores3.length > 0
-    ? anteriores3.reduce((a, m) => a + m.lucroLiquido, 0) / anteriores3.length
-    : 0;
-
-const tendencia = mediaUltimos3 - mediaAnteriores3;
-
-const alertasHistorico: string[] = [];
-
-for (let i = 2; i < serieMensal.length; i += 1) {
-  const a = serieMensal[i - 2].lucroLiquido;
-  const b = serieMensal[i - 1].lucroLiquido;
-  const c = serieMensal[i].lucroLiquido;
-  if (a > b && b > c) {
-    alertasHistorico.push(
-      `Queda de lucro por 3 competências seguidas até ${formatCompetenciaLabel(serieMensal[i].mes)}.`
-    );
-    break;
+  const serieMap = new Map<string, SerieMensal>();
+  for (const mes of mesesHistorico) {
+    serieMap.set(mes, {
+      mes,
+      receitas: 0,
+      aportes: 0,
+      custos: 0,
+      transferencias: 0,
+      lucroLiquido: 0,
+    });
   }
-}
 
-const atualHistorico = serieMensal[serieMensal.length - 1];
-if (atualHistorico && atualHistorico.receitas > 0) {
-  const pctCustos = (atualHistorico.custos / atualHistorico.receitas) * 100;
-  if (pctCustos >= 60) {
-    alertasHistorico.push(
-      `Custos estão em ${pctCustos.toFixed(1)}% da receita em ${formatCompetenciaLabel(
-        atualHistorico.mes
-      )}.`
-    );
+  for (const item of historicoLanc) {
+    const mes = item.data?.slice(0, 7);
+    if (!mes || !serieMap.has(mes)) continue;
+
+    const row = serieMap.get(mes)!;
+    const tipo = parseTipoFromDescricao(item.descricao ?? "");
+    const recebido = Number(item.valor_recebido ?? 0);
+    const custo = Number(item.custo_total ?? 0);
+
+    if (tipo === "receita_bruta") row.receitas += recebido;
+    else if (tipo === "aporte_cpf_para_pj") row.aportes += recebido;
+    else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") row.custos += custo;
+    else if (tipo === "transferencia_para_cpf") row.transferencias += custo;
   }
-}
+
+  for (const item of historicoTransf) {
+    const mes = item.data_transferencia?.slice(0, 7);
+    if (!mes || !serieMap.has(mes)) continue;
+
+    const row = serieMap.get(mes)!;
+    row.transferencias += Number(item.valor ?? 0);
+  }
+
+  const serieMensal = Array.from(serieMap.values()).map((row) => ({
+    ...row,
+    lucroLiquido: row.receitas + row.aportes - row.custos - row.transferencias,
+  }));
+
+  const serieComDados = serieMensal.filter(
+    (m) => m.receitas > 0 || m.aportes > 0 || m.custos > 0 || m.transferencias > 0
+  );
 
   return (
     <main className="min-h-screen bg-zinc-50">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
-        <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-  <div className="mb-5">
-    <h2 className="text-lg font-semibold text-zinc-900">Fase 6 · Histórico e insights</h2>
-    <p className="text-sm text-zinc-500">
-      Visão dos últimos 12 meses da renda variável com tendências e alertas.
-    </p>
-  </div>
+        <HistoricoSection serieMensal={serieMensal} serieComDados={serieComDados} />
 
-  <div className="grid gap-3 md:grid-cols-4">
-    <div className="rounded-2xl bg-zinc-50 p-4">
-      <p className="text-xs uppercase tracking-wide text-zinc-500">Melhor mês</p>
-      <p className="mt-2 text-sm font-semibold text-zinc-900">
-        {melhorMes ? `${formatCompetenciaLabel(melhorMes.mes)} · R$ ${formatMoney(melhorMes.lucroLiquido)}` : "—"}
-      </p>
-    </div>
-    <div className="rounded-2xl bg-zinc-50 p-4">
-      <p className="text-xs uppercase tracking-wide text-zinc-500">Pior mês</p>
-      <p className="mt-2 text-sm font-semibold text-zinc-900">
-        {piorMes ? `${formatCompetenciaLabel(piorMes.mes)} · R$ ${formatMoney(piorMes.lucroLiquido)}` : "—"}
-      </p>
-    </div>
-    <div className="rounded-2xl bg-zinc-50 p-4">
-      <p className="text-xs uppercase tracking-wide text-zinc-500">Média lucro</p>
-      <p className="mt-2 text-sm font-semibold text-zinc-900">R$ {formatMoney(mediaLucro)}</p>
-    </div>
-    <div className="rounded-2xl bg-zinc-50 p-4">
-      <p className="text-xs uppercase tracking-wide text-zinc-500">Tendência (3x3)</p>
-      <p className={`mt-2 text-sm font-semibold ${tendencia >= 0 ? "text-emerald-700" : "text-red-700"}`}>
-        {tendencia >= 0 ? "+" : "-"}R$ {formatMoney(Math.abs(tendencia))}
-      </p>
-    </div>
-  </div>
-
-  <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
-    <div className="grid grid-cols-5 bg-zinc-50 px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
-      <span>Mês</span>
-      <span className="text-right">Receitas</span>
-      <span className="text-right">Custos</span>
-      <span className="text-right">Transferências</span>
-      <span className="text-right">Lucro líquido</span>
-    </div>
-    <div className="divide-y divide-zinc-200 text-sm">
-      {serieMensal.map((m) => (
-        <div key={m.mes} className="grid grid-cols-5 px-4 py-3">
-          <span className="text-zinc-700">{formatCompetenciaLabel(m.mes)}</span>
-          <span className="text-right text-zinc-700">R$ {formatMoney(m.receitas + m.aportes)}</span>
-          <span className="text-right text-zinc-700">R$ {formatMoney(m.custos)}</span>
-          <span className="text-right text-zinc-700">R$ {formatMoney(m.transferencias)}</span>
-          <span className="text-right font-medium text-zinc-900">R$ {formatMoney(m.lucroLiquido)}</span>
-        </div>
-      ))}
-    </div>
-  </div>
-
-  <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-    <p className="text-sm font-medium text-zinc-900">Alertas inteligentes</p>
-    {alertasHistorico.length === 0 ? (
-      <p className="mt-1 text-sm text-zinc-600">Sem alertas críticos no histórico recente.</p>
-    ) : (
-      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800">
-        {alertasHistorico.map((alerta) => (
-          <li key={alerta}>{alerta}</li>
-        ))}
-      </ul>
-    )}
-  </div>
-</section>
+        {/* Header */}
         <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-2">
@@ -646,7 +398,7 @@ if (atualHistorico && atualHistorico.receitas > 0) {
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
-                 href="/renda-variavel/novo?tipo=receita_bruta"
+                href="/renda-variavel/novo?tipo=receita_bruta"
                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-800"
               >
                 <Plus className="h-4 w-4" />
@@ -680,6 +432,7 @@ if (atualHistorico && atualHistorico.receitas > 0) {
           </div>
         </section>
 
+        {/* Competência selector */}
         <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
@@ -723,113 +476,9 @@ if (atualHistorico && atualHistorico.receitas > 0) {
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-sm text-zinc-500">Saldo da carteira</span>
-              <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
-                <Wallet className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-semibold tracking-tight text-zinc-900">
-              R$ {formatMoney(resumo.saldoCarteira)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Disponível para transferir ou guardar
-            </p>
-          </div>
+        <ResumoCards resumo={resumo} />
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-sm text-zinc-500">Recebido no mês</span>
-              <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
-                <TrendingUp className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-semibold tracking-tight text-zinc-900">
-              R$ {formatMoney(resumo.recebidoMes)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Total de receitas brutas (sem aportes)
-            </p>
-          </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-  <div className="mb-4 flex items-center justify-between">
-    <span className="text-sm text-zinc-500">Aportes no mês</span>
-    <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
-      <PiggyBank className="h-4 w-4" />
-    </div>
-  </div>
-  <p className="text-2xl font-semibold tracking-tight text-zinc-900">
-    R$ {formatMoney(resumo.aportesMes)}
-  </p>
-  <p className="mt-1 text-xs text-zinc-500">
-    Entradas da conta CPF para PJ
-  </p>
-</div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-sm text-zinc-500">Custos no mês</span>
-              <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
-                <TrendingDown className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-semibold tracking-tight text-zinc-900">
-              R$ {formatMoney(resumo.custosMes)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Taxas financeiras + despesas operacionais
-            </p>
-          </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-sm text-zinc-500">Lucro líquido</span>
-              <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
-                <PiggyBank className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-semibold tracking-tight text-zinc-900">
-              R$ {formatMoney(resumo.lucroLiquidoMes)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              O que realmente sobrou no período
-            </p>
-          </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-sm text-zinc-500">Horas no mês</span>
-              <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
-                <Clock3 className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-semibold tracking-tight text-zinc-900">
-              {resumo.totalHorasEstimadas.toFixed(1)}h
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Total trabalhado no período
-            </p>
-          </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-sm text-zinc-500">Transferido no mês</span>
-              <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
-                <ArrowRightLeft className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-semibold tracking-tight text-zinc-900">
-              R$ {formatMoney(resumo.transferidoMes)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Transferências da PJ para conta CPF
-            </p>
-          </div>
-        </section>
-
+        {/* Inteligência + Ações rápidas */}
         <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="mb-5 flex items-start justify-between gap-4">
@@ -962,7 +611,8 @@ if (atualHistorico && atualHistorico.receitas > 0) {
           </div>
         </section>
 
-         <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+        {/* Fechamento mensal + Comparativo */}
+        <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
@@ -1071,321 +721,140 @@ if (atualHistorico && atualHistorico.receitas > 0) {
           </section>
         ) : null}
 
+        {/* Meta e ritmo + Planejamento */}
         <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-  <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-    <div className="mb-5 flex items-start justify-between gap-4">
-      <div>
-        <h2 className="text-lg font-semibold text-zinc-900">
-          Meta e ritmo do mês
-        </h2>
-        <p className="text-sm text-zinc-500">
-          Defina uma meta de lucro líquido para {formatCompetenciaLabel(mesSelecionado)} e acompanhe o ritmo.
-        </p>
-      </div>
-      <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
-        <TrendingUp className="h-4 w-4" />
-      </div>
-    </div>
-
-    <form method="GET" className="mb-4 grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 md:grid-cols-[1fr_auto] md:items-end">
-      <input type="hidden" name="mes" value={mesSelecionado} />
-      <input type="hidden" name="tipo" value={tipoSelecionado} />
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Meta de lucro líquido
-        </span>
-        <input
-          type="number"
-          name="meta"
-          min="0"
-          step="0.01"
-          defaultValue={metaMensal > 0 ? metaMensal.toFixed(2) : ""}
-          placeholder="Ex.: 8000"
-          className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-zinc-400"
-        />
-      </label>
-      <button
-        type="submit"
-        className="h-11 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
-      >
-        Atualizar meta
-      </button>
-    </form>
-
-    <div className="grid gap-3 md:grid-cols-3">
-      <div className="rounded-2xl bg-zinc-50 p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Progresso da meta
-        </p>
-        <p className="mt-2 text-xl font-semibold text-zinc-900">
-          {progressoMeta.toFixed(1)}%
-        </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          R$ {formatMoney(lucroLiquidoMes)} de R$ {formatMoney(metaMensal)}
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-zinc-50 p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Falta para meta
-        </p>
-        <p className="mt-2 text-xl font-semibold text-zinc-900">
-          R$ {formatMoney(faltaParaMeta)}
-        </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          {faltaParaMeta > 0 ? "Valor restante para bater a meta" : "Meta atingida no período"}
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-zinc-50 p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Ritmo diário necessário
-        </p>
-        <p className="mt-2 text-xl font-semibold text-zinc-900">
-          R$ {formatMoney(ritmoDiarioNecessario)}
-        </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          {diasRestantes > 0
-            ? `Com ${diasRestantes} dia(s) restantes`
-            : "Sem dias restantes no mês selecionado"}
-        </p>
-      </div>
-    </div>
-
-    {excedenteMeta > 0 ? (
-      <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
-        Excelente: você está R$ {formatMoney(excedenteMeta)} acima da meta dessa competência.
-      </div>
-    ) : null}
-  </div>
-
-  <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-    <div className="mb-5">
-      <h2 className="text-lg font-semibold text-zinc-900">
-        Planejamento de transferência
-      </h2>
-      <p className="text-sm text-zinc-500">
-        Sugestão automática para transferir com reserva de segurança.
-      </p>
-    </div>
-
-    <div className="space-y-3">
-      <div className="rounded-2xl bg-zinc-50 p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Saldo líquido após transferências
-        </p>
-        <p className="mt-2 text-xl font-semibold text-zinc-900">
-          R$ {formatMoney(saldoLiquidoAposTransferencias)}
-        </p>
-      </div>
-      <div className="rounded-2xl bg-zinc-50 p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Reserva sugerida (20%)
-        </p>
-        <p className="mt-2 text-xl font-semibold text-zinc-900">
-          R$ {formatMoney(reservaSugerida)}
-        </p>
-      </div>
-      <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
-          Máximo sugerido para nova transferência
-        </p>
-        <p className="mt-2 text-xl font-semibold text-emerald-900">
-          R$ {formatMoney(transferenciaSeguraSugerida)}
-        </p>
-      </div>
-    </div>
-  </div>
-</section>
-
-
-        <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-zinc-900">
-                Lançamentos recentes
-              </h2>
-              <p className="text-sm text-zinc-500">
-                Histórico dos registros mais recentes da sua renda variável.
-              </p>
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  Meta e ritmo do mês
+                </h2>
+                <p className="text-sm text-zinc-500">
+                  Defina uma meta de lucro líquido para {formatCompetenciaLabel(mesSelecionado)} e acompanhe o ritmo.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-zinc-100 p-2 text-zinc-700">
+                <TrendingUp className="h-4 w-4" />
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-  <form method="GET" className="flex items-center gap-2">
-    <input type="hidden" name="mes" value={mesSelecionado} />
-    <select
-      name="tipo"
-      defaultValue={tipoSelecionado}
-      className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-700"
-    >
-      <option value="todos">Todos os tipos</option>
-      {Object.entries(TIPO_RV_LABEL).map(([value, label]) => (
-        <option key={value} value={value}>
-          {label}
-        </option>
-      ))}
-    </select>
-    <button
-      type="submit"
-      className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
-    >
-      Filtrar
-    </button>
-  </form>
+            <form method="GET" className="mb-4 grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 md:grid-cols-[1fr_auto] md:items-end">
+              <input type="hidden" name="mes" value={mesSelecionado} />
+              <input type="hidden" name="tipo" value={tipoSelecionado} />
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Meta de lucro líquido
+                </span>
+                <input
+                  type="number"
+                  name="meta"
+                  min="0"
+                  step="0.01"
+                  defaultValue={metaMensal > 0 ? metaMensal.toFixed(2) : ""}
+                  placeholder="Ex.: 8000"
+                  className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-zinc-400"
+                />
+              </label>
+              <button
+                type="submit"
+                className="h-11 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
+              >
+                Atualizar meta
+              </button>
+            </form>
 
-  <Link
-    href="/renda-variavel/novo"
-    className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
-  >
-    <Plus className="h-4 w-4" />
-    Novo
-  </Link>
-</div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Progresso da meta
+                </p>
+                <p className="mt-2 text-xl font-semibold text-zinc-900">
+                  {progressoMeta.toFixed(1)}%
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  R$ {formatMoney(lucroLiquidoMes)} de R$ {formatMoney(metaMensal)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Falta para meta
+                </p>
+                <p className="mt-2 text-xl font-semibold text-zinc-900">
+                  R$ {formatMoney(faltaParaMeta)}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {faltaParaMeta > 0 ? "Valor restante para bater a meta" : "Meta atingida no período"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Ritmo diário necessário
+                </p>
+                <p className="mt-2 text-xl font-semibold text-zinc-900">
+                  R$ {formatMoney(ritmoDiarioNecessario)}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {diasRestantes > 0
+                    ? `Com ${diasRestantes} dia(s) restantes`
+                    : "Sem dias restantes no mês selecionado"}
+                </p>
+              </div>
+            </div>
+
+            {excedenteMeta > 0 ? (
+              <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
+                Excelente: você está R$ {formatMoney(excedenteMeta)} acima da meta dessa competência.
+              </div>
+            ) : null}
           </div>
 
-          {lancamentos.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-6 py-10 text-center">
-              <p className="text-sm font-medium text-zinc-900">
-                Você ainda não tem lançamentos cadastrados.
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-lg font-semibold text-zinc-900">
+                Planejamento de transferência
+              </h2>
+              <p className="text-sm text-zinc-500">
+                Sugestão automática para transferir com reserva de segurança.
               </p>
-              <p className="mt-1 text-sm text-zinc-500">
-                Comece registrando seus trabalhos, vendas, pedidos ou serviços
-                para acompanhar quanto realmente sobra.
-              </p>
-
-              <Link
-                href="/renda-variavel/novo"
-                className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-800"
-              >
-                <Plus className="h-4 w-4" />
-                Fazer primeiro lançamento
-              </Link>
             </div>
-          ) : (
-            <>
-              <div className="hidden overflow-hidden rounded-2xl border border-zinc-200 lg:block">
-                <div className="grid grid-cols-8 gap-4 bg-zinc-50 px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                  <span>Data</span>
-                  <span className="col-span-2">Descrição</span>
-                  <span>Perfil</span>
-                  <span>Recebido</span>
-                  <span>Lucro</span>
-                  <span className="col-span-2 text-right">Ações</span>
-                </div>
 
-                <div className="divide-y divide-zinc-200">
-                  {lancamentos.map((item) => (
-                    <div
-                      key={item.id}
-                      className="grid grid-cols-8 items-center gap-4 px-4 py-4 text-sm"
-                    >
-                      <span className="text-zinc-600">
-                        {formatDate(item.data)}
-                      </span>
-
-                      <div className="col-span-2">
-  <span className="font-medium text-zinc-900">{item.descricao}</span>
-  {item.tipo ? (
-    <span className="ml-2 inline-flex rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-700">
-      {TIPO_RV_LABEL[item.tipo]}
-    </span>
-  ) : null}
-</div>
-
-                      <span className="text-zinc-600">{item.perfil}</span>
-
-                      <span className="text-zinc-600">
-                        R$ {formatMoney(item.recebido)}
-                      </span>
-
-                      <span className="font-medium text-zinc-900">
-                        R$ {formatMoney(item.lucro)}
-                      </span>
-
-                      <div className="col-span-2 flex items-center justify-end gap-2">
-                        <Link
-                          href={`/renda-variavel/${item.id}`}
-                          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                          Abrir / editar
-                        </Link>
-
-                        <form action={excluirLancamento}>
-                          <input type="hidden" name="id" value={item.id} />
-                          <button
-                            type="submit"
-                            className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Excluir
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <div className="space-y-3">
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Saldo líquido após transferências
+                </p>
+                <p className="mt-2 text-xl font-semibold text-zinc-900">
+                  R$ {formatMoney(saldoLiquidoAposTransferencias)}
+                </p>
               </div>
-
-              <div className="grid gap-3 lg:hidden">
-                {lancamentos.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-zinc-200 bg-white p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs text-zinc-500">
-                          {formatDate(item.data)}
-                        </p>
-                        <p className="mt-1 font-medium text-zinc-900">
-                          {item.descricao}
-                        </p>
-                        <p className="mt-1 text-sm text-zinc-500">
-                          Perfil: {item.perfil}
-                        </p>
-                      </div>
-
-                      <div className="text-right">
-                        <p className="text-xs text-zinc-500">Lucro</p>
-                        <p className="font-semibold text-zinc-900">
-                          R$ {formatMoney(item.lucro)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between gap-3">
-                      <p className="text-sm text-zinc-600">
-                        Recebido: R$ {formatMoney(item.recebido)}
-                      </p>
-
-                      <div className="flex items-center gap-2">
-                        <Link
-                          href={`/renda-variavel/${item.id}`}
-                          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                          Editar
-                        </Link>
-
-                        <form action={excluirLancamento}>
-                          <input type="hidden" name="id" value={item.id} />
-                          <button
-                            type="submit"
-                            className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Excluir
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Reserva sugerida (20%)
+                </p>
+                <p className="mt-2 text-xl font-semibold text-zinc-900">
+                  R$ {formatMoney(reservaSugerida)}
+                </p>
               </div>
-            </>
-          )}
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                  Máximo sugerido para nova transferência
+                </p>
+                <p className="mt-2 text-xl font-semibold text-emerald-900">
+                  R$ {formatMoney(transferenciaSeguraSugerida)}
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
+
+        <LancamentosSection
+          lancamentos={lancamentos}
+          mesSelecionado={mesSelecionado}
+          tipoSelecionado={tipoSelecionado}
+          excluirLancamento={excluirLancamento}
+        />
       </div>
     </main>
   );
