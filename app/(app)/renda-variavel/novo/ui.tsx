@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { TIPO_RV_LABEL, type TipoRvLancamento } from "../_lib/tipos";
 import type {
-  CategoriaCusto,
   CustoDia,
-  Insumo,
   TipoLancamento,
   ModoIntervalo,
   InsumoSelecionado,

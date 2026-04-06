@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { TIPO_RV_LABEL, parseTipoFromDescricao, type TipoRvLancamento } from "./_lib/tipos";
+import { parseTipoFromDescricao } from "./_lib/tipos";
 import type {
   LancamentoRow,
   TransferenciaRow,
@@ -12,7 +12,6 @@ import type {
 } from "./_lib/types";
 import {
   formatMoney,
-  formatDate,
   stripTipoPrefix,
   getMesAtual,
   getRangeFromMes,

@@ -48,7 +48,7 @@ export default function LoginPage() {
 
       router.push("/dashboard");
       router.refresh();
-    } catch (error) {
+    } catch {
       setErro("Erro ao fazer login.");
     } finally {
       setLoading(false);
@@ -109,7 +109,7 @@ export default function LoginPage() {
       setMode("login");
       setSenha("");
       setConfirmarSenha("");
-    } catch (error) {
+    } catch {
       setErro("Erro ao criar conta.");
     } finally {
       setLoading(false);

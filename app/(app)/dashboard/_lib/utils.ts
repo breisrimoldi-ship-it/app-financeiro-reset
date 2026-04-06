@@ -13,7 +13,6 @@ import type {
   MetaPlanoRadar,
   MonthSnapshot,
   MetaRecord,
-  MetaAporteRecord,
   ActionFormData,
   RecomendacaoItem,
 } from "./types";

@@ -8,7 +8,7 @@ import {
   ArrowUpRight,
   History,
 } from "lucide-react";
-import type { MetaCalculada, MetaStatus } from "../_lib/types";
+import type { MetaCalculada } from "../_lib/types";
 import { classNames, formatarMoeda, getStatusLabel } from "../_lib/utils";
 
 export function MetaCard({

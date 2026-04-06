@@ -35,7 +35,6 @@ import {
   getMediaMensalAportes,
   getPrevisaoConclusaoTexto,
   formatarData,
-  getStatusLabel,
   getPrioridadeLabel,
   getPercentual,
   getMetaFormInicial,
