@@ -1,11 +1,4 @@
-import type { CustoDia, DiaDetalhado, InsumoSelecionado, CustoManualItem, Perfil } from "./types";
-
-export const perfisMock: Perfil[] = [
-  { id: "1", nome: "Motorista" },
-  { id: "2", nome: "Confeitaria" },
-  { id: "3", nome: "Freelancer" },
-  { id: "4", nome: "Personalizado" },
-];
+import type { CustoDia, DiaDetalhado, InsumoSelecionado, CustoManualItem } from "./types";
 
 export function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", {

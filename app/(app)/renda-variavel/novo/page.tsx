@@ -19,6 +19,11 @@ type Insumo = {
   ativo: boolean | null;
 };
 
+type Perfil = {
+  id: string;
+  nome: string;
+};
+
 export default async function NovoLancamentoPage() {
   const supabase = await createClient();
 
@@ -52,10 +57,22 @@ export default async function NovoLancamentoPage() {
     throw new Error(insumosError.message);
   }
 
+  const { data: perfis, error: perfisError } = await supabase
+    .from("rv_perfis")
+    .select("id, nome")
+    .eq("user_id", user.id)
+    .eq("ativo", true)
+    .order("nome", { ascending: true });
+
+  if (perfisError) {
+    throw new Error(perfisError.message);
+  }
+
   return (
     <NovoLancamentoClient
       categorias={(categorias ?? []) as CategoriaCusto[]}
       insumos={(insumos ?? []) as Insumo[]}
+      perfis={(perfis ?? []) as Perfil[]}
     />
   );
 }

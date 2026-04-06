@@ -59,4 +59,5 @@ export type CustoManualItem = {
 export type Props = {
   categorias: CategoriaCusto[];
   insumos: Insumo[];
+  perfis: Perfil[];
 };

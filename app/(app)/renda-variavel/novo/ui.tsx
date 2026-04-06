@@ -14,7 +14,6 @@ import type {
   Props,
 } from "./_lib/types";
 import {
-  perfisMock,
   formatCurrency,
   getHoje,
   getDatesInRange,
@@ -45,6 +44,7 @@ import { criarLancamentosRendaVariavel } from "./actions";
 export default function NovoLancamentoClient({
   categorias,
   insumos,
+  perfis,
 }: Props) {
   const [isPending, startTransition] = useTransition();
 
@@ -58,7 +58,7 @@ export default function NovoLancamentoClient({
   const [dataFim, setDataFim] = useState(getHoje());
 
   const [descricao, setDescricao] = useState("");
-  const [perfilId, setPerfilId] = useState(perfisMock[0]?.id ?? "");
+  const [perfilId, setPerfilId] = useState(perfis[0]?.id ?? "");
   const [valorRecebido, setValorRecebido] = useState("");
   const [cliente, setCliente] = useState("");
   const [horasTrabalhadas, setHorasTrabalhadas] = useState("");
@@ -430,7 +430,7 @@ export default function NovoLancamentoClient({
       setErro("");
 
       const perfilSelecionado =
-        perfisMock.find((perfil) => perfil.id === perfilId)?.nome ?? "";
+        perfis.find((perfil) => perfil.id === perfilId)?.nome ?? "";
 
       if (
         (tipoLancamento === "unico" || modoIntervalo === "resumo") &&
@@ -862,7 +862,7 @@ export default function NovoLancamentoClient({
                     onChange={(e) => setPerfilId(e.target.value)}
                     className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400"
                   >
-                    {perfisMock.map((perfil) => (
+                    {perfis.map((perfil) => (
                       <option key={perfil.id} value={perfil.id}>
                         {perfil.nome}
                       </option>
