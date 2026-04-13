@@ -547,7 +547,7 @@ export function calcularSnapshotDoMesBase(
       (item) =>
         item.cartao_id === cartaoId &&
         item.mes_referencia === competencia &&
-        (item.status ?? "").toLowerCase() === "paga"
+        ["paga", "parcial"].includes((item.status ?? "").toLowerCase())
     );
 
     if (!pagamento) {
@@ -562,14 +562,35 @@ export function calcularSnapshotDoMesBase(
       continue;
     }
 
+    const statusPagamento = (pagamento.status ?? "").toLowerCase();
+    const valorPago = normalizarNumero(pagamento.valor_pago ?? 0);
     const mesPagamento = pagamento.data_pagamento?.slice(0, 7);
 
+    if (statusPagamento === "parcial") {
+      const valorRestante = Math.max(valorFatura - valorPago, 0);
+
+      if (mesPagamento === mesSelecionado) {
+        totalFaturasPagasNoMes += valorPago;
+      }
+
+      if (competencia < mesSelecionado) {
+        totalFaturasEmAbertoAtrasadas += valorRestante;
+      } else if (competencia === mesSelecionado) {
+        totalFaturasEmAbertoMes += valorRestante;
+      }
+
+      const resumo = resumoPorCartao.get(cartaoId);
+      if (resumo) resumo.emAberto += valorRestante;
+      continue;
+    }
+
+    // status === "paga"
     if (mesPagamento === mesSelecionado) {
-      const valorPago = normalizarNumero(pagamento.valor_pago || valorFatura);
-      totalFaturasPagasNoMes += valorPago;
+      const valorPagoFinal = valorPago > 0 ? valorPago : valorFatura;
+      totalFaturasPagasNoMes += valorPagoFinal;
 
       if (competencia > mesSelecionado) {
-        totalAdiantadasNoMes += valorPago;
+        totalAdiantadasNoMes += valorPagoFinal;
       }
     } else {
       const resumo = resumoPorCartao.get(cartaoId);
