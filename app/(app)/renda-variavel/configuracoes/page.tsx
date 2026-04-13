@@ -1,14 +1,55 @@
-export default function ConfiguracoesPage() {
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import ConfiguracoesClient from "./ui";
+
+type Perfil = {
+  id: string;
+  nome: string;
+};
+
+type Configuracao = {
+  perfil_padrao_id: string | null;
+  horas_padrao: string | null;
+  meta_mensal: number | null;
+  moeda: string;
+};
+
+export default async function ConfiguracoesPage() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const { data: perfis, error: perfisError } = await supabase
+    .from("rv_perfis")
+    .select("id, nome")
+    .eq("user_id", user.id)
+    .eq("ativo", true)
+    .order("nome", { ascending: true });
+
+  if (perfisError) {
+    throw new Error(perfisError.message);
+  }
+
+  const { data: config, error: configError } = await supabase
+    .from("rv_configuracoes")
+    .select("perfil_padrao_id, horas_padrao, meta_mensal, moeda")
+    .eq("user_id", user.id)
+    .single();
+
+  if (configError && configError.code !== "PGRST116") {
+    throw new Error(configError.message);
+  }
+
   return (
-    <main className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-5xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold text-zinc-900">
-          Configurações
-        </h1>
-        <p className="mt-2 text-sm text-zinc-500">
-          Aqui vamos definir preferências do módulo de renda variável.
-        </p>
-      </div>
-    </main>
+    <ConfiguracoesClient
+      perfis={(perfis ?? []) as Perfil[]}
+      config={(config as Configuracao) ?? null}
+    />
   );
 }

@@ -1,13 +1,35 @@
-export default function PerfisPage() {
-  return (
-    <main className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-5xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold text-zinc-900">Perfis</h1>
-        <p className="mt-2 text-sm text-zinc-500">
-          Aqui vamos gerenciar perfis como motorista, confeitaria, freelancer e
-          personalizado.
-        </p>
-      </div>
-    </main>
-  );
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import PerfisClient from "./ui";
+
+type Perfil = {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  ativo: boolean;
+  created_at: string;
+};
+
+export default async function PerfisPage() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const { data: perfis, error } = await supabase
+    .from("rv_perfis")
+    .select("id, nome, descricao, ativo, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return <PerfisClient perfis={(perfis ?? []) as Perfil[]} />;
 }

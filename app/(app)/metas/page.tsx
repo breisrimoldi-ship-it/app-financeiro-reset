@@ -11,375 +11,45 @@ import {
   Target,
   TrendingUp,
   Wallet,
-  X,
-  Pencil,
   Trash2,
-  PauseCircle,
-  CheckCircle2,
-  History,
 } from "lucide-react";
-import { getHojeISO } from "@/lib/finance/date";
-import { formatarMoedaBRL, normalizarNumero } from "@/lib/finance/format";
+import { normalizarNumero } from "@/lib/finance/format";
+
+import type {
+  MetaStatus,
+  MetaPrioridade,
+  MetaAporteTipo,
+  MetaRow,
+  MetaAporteRow,
+  MetaCalculada,
+  MetaFormState,
+  AporteFormState,
+} from "./_lib/types";
+
+import {
+  getHoje,
+  formatarMoeda,
+  classNames,
+  diferencaMesesEntreDatas,
+  somarAportesValidos,
+  getMediaMensalAportes,
+  getPrevisaoConclusaoTexto,
+  formatarData,
+  getPrioridadeLabel,
+  getPercentual,
+  getMetaFormInicial,
+  getAporteFormInicial,
+  calcularValorAtual,
+} from "./_lib/utils";
+
+import { Campo, Input, Textarea, Select } from "./_components/form-primitives";
+import { InteligenciaMetasSection } from "./_components/inteligencia-metas-section";
+import { MetaCard } from "./_components/meta-card";
+import { MetasSkeleton } from "./_components/metas-skeleton";
+import { ModalShell } from "./_components/modal-shell";
+import { ResumoCard } from "./_components/resumo-card";
 
 const supabase = createClient();
-
-type MetaStatus = "ativa" | "pausada" | "concluida" | "cancelada";
-type MetaPrioridade = 1 | 2 | 3;
-type MetaAporteTipo = "aporte" | "retirada" | "ajuste";
-
-type MetaRow = {
-  id: string;
-  user_id: string;
-  nome: string;
-  descricao: string | null;
-  tipo: string | null;
-  valor_meta: number | string;
-  valor_inicial: number | string;
-  valor_atual: number | string | null;
-  cor: string | null;
-  icone: string | null;
-  prazo: string | null;
-  prioridade: number;
-  status: MetaStatus;
-  considerar_na_dashboard: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
-type MetaAporteRow = {
-  id: string;
-  user_id: string;
-  meta_id: string;
-  tipo: MetaAporteTipo;
-  valor: number | string;
-  descricao: string | null;
-  data: string;
-  created_at: string;
-};
-
-type MetaCalculada = MetaRow & {
-  valorMetaNumero: number;
-  valorInicialNumero: number;
-  valorAtualCalculado: number;
-  faltante: number;
-  percentual: number;
-  aportesDaMeta: MetaAporteRow[];
-  prazoFormatado: string;
-  prioridadeLabel: string;
-    totalAportado: number;
-  mediaMensalAportes: number;
-  mesesRestantes: number | null;
-  valorIdealMensal: number | null;
-  previsaoConclusaoTexto: string;
-};
-
-type MetaFormState = {
-  nome: string;
-  descricao: string;
-  tipo: string;
-  valorMeta: string;
-  valorInicial: string;
-  prazo: string;
-  prioridade: MetaPrioridade;
-  status: MetaStatus;
-  considerarNaDashboard: boolean;
-};
-
-type AporteFormState = {
-  tipo: MetaAporteTipo;
-  valor: string;
-  descricao: string;
-  data: string;
-};
-
-const getHoje = getHojeISO;
-const formatarMoeda = formatarMoedaBRL
-
-function diferencaMesesEntreDatas(inicio: Date, fim: Date) {
-  const anos = fim.getFullYear() - inicio.getFullYear();
-  const meses = fim.getMonth() - inicio.getMonth();
-  const total = anos * 12 + meses;
-
-  return total < 0 ? 0 : total;
-}
-
-function somarAportesValidos(aportes: MetaAporteRow[]) {
-  return aportes.reduce((acc, item) => {
-    const valor = normalizarNumero(item.valor);
-
-    if (item.tipo === "aporte") return acc + valor;
-    if (item.tipo === "retirada") return acc - valor;
-    if (item.tipo === "ajuste") return acc + valor;
-
-    return acc;
-  }, 0);
-}
-
-function getMediaMensalAportes(aportes: MetaAporteRow[]) {
-  if (!aportes.length) return 0;
-
-  const total = somarAportesValidos(aportes);
-
-  const datasValidas = aportes
-    .map((item) => item.data)
-    .filter(Boolean)
-    .sort();
-
-  if (!datasValidas.length) return total;
-
-  const primeiraData = new Date(`${datasValidas[0]}T12:00:00`);
-  const hoje = new Date();
-  const meses = Math.max(diferencaMesesEntreDatas(primeiraData, hoje) + 1, 1);
-
-  return total / meses;
-}
-
-function getPrevisaoConclusaoTexto(
-  faltante: number,
-  mediaMensalAportes: number,
-  percentual: number
-) {
-  if (faltante <= 0 || percentual >= 100) return "Meta já concluída";
-
-  if (mediaMensalAportes <= 0) {
-    return "Sem histórico suficiente para prever";
-  }
-
-  const meses = Math.ceil(faltante / mediaMensalAportes);
-
-  if (meses <= 1) return "Previsão de conclusão em até 1 mês";
-  return `Previsão de conclusão em cerca de ${meses} meses`;
-}
-
-function formatarData(data: string | null | undefined) {
-  if (!data) return "Sem prazo";
-  const [ano, mes, dia] = data.split("-");
-  if (!ano || !mes || !dia) return data;
-  return `${dia}/${mes}/${ano}`;
-}
-
-function getStatusLabel(status: MetaStatus) {
-  switch (status) {
-    case "ativa":
-      return "Ativa";
-    case "pausada":
-      return "Pausada";
-    case "concluida":
-      return "Concluída";
-    case "cancelada":
-      return "Cancelada";
-    default:
-      return status;
-  }
-}
-
-function getPrioridadeLabel(prioridade: number) {
-  if (prioridade === 1) return "Alta";
-  if (prioridade === 2) return "Média";
-  return "Baixa";
-}
-
-function getPercentual(valorAtual: number, valorMeta: number) {
-  if (valorMeta <= 0) return 0;
-  return Math.max(0, Math.min((valorAtual / valorMeta) * 100, 100));
-}
-
-function getMetaFormInicial(): MetaFormState {
-  return {
-    nome: "",
-    descricao: "",
-    tipo: "",
-    valorMeta: "",
-    valorInicial: "0",
-    prazo: "",
-    prioridade: 2,
-    status: "ativa",
-    considerarNaDashboard: true,
-  };
-}
-
-function getAporteFormInicial(): AporteFormState {
-  return {
-    tipo: "aporte",
-    valor: "",
-    descricao: "",
-    data: getHoje(),
-  };
-}
-
-function classNames(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
-function calcularValorAtual(meta: MetaRow, aportes: MetaAporteRow[]) {
-  const valorInicial = normalizarNumero(meta.valor_inicial);
-  const valorAtualBase = normalizarNumero(meta.valor_atual);
-
-  const base = valorAtualBase > 0 ? valorAtualBase : valorInicial;
-
-  const totalHistorico = aportes.reduce((acc, item) => {
-    const valor = normalizarNumero(item.valor);
-
-    if (item.tipo === "aporte") return acc + valor;
-    if (item.tipo === "retirada") return acc - valor;
-    if (item.tipo === "ajuste") return acc + valor;
-
-    return acc;
-  }, 0);
-
-  return base + totalHistorico;
-}
-
-function ResumoCard({
-  titulo,
-  valor,
-  subtitulo,
-  icon,
-  tone = "default",
-}: {
-  titulo: string;
-  valor: string;
-  subtitulo: string;
-  icon: React.ReactNode;
-  tone?: "default" | "emerald" | "blue" | "orange";
-}) {
-  const toneClasses =
-    tone === "emerald"
-      ? "border-emerald-200 bg-emerald-50/70"
-      : tone === "blue"
-      ? "border-blue-200 bg-blue-50/70"
-      : tone === "orange"
-      ? "border-orange-200 bg-orange-50/70"
-      : "border-slate-200 bg-white";
-
-  return (
-    <div
-      className={classNames(
-        "rounded-[28px] border px-5 py-5 shadow-sm md:px-6",
-        toneClasses
-      )}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
-            {titulo}
-          </p>
-          <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
-            {valor}
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">{subtitulo}</p>
-        </div>
-
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/80 text-slate-600 ring-1 ring-black/5">
-          {icon}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ModalShell({
-  title,
-  subtitle,
-  onClose,
-  children,
-  maxWidth = "max-w-2xl",
-}: {
-  title: string;
-  subtitle?: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  maxWidth?: string;
-}) {
-  return (
-    <>
-      <div
-        className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
-      <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
-        <div
-          className={classNames(
-            "flex max-h-[90vh] w-full flex-col overflow-hidden rounded-4x1 border border-slate-200 bg-white shadow-2xl",
-            maxWidth
-          )}
-        >
-          <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
-            <div>
-              <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
-              {subtitle ? (
-                <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                  {subtitle}
-                </p>
-              ) : null}
-            </div>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-6 py-6">{children}</div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function Campo({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-medium text-slate-700">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={classNames(
-        "h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400",
-        props.className
-      )}
-    />
-  );
-}
-
-function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      {...props}
-      className={classNames(
-        "min-h-27.5 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-400",
-        props.className
-      )}
-    />
-  );
-}
-
-function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className={classNames(
-        "h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400",
-        props.className
-      )}
-    />
-  );
-}
 
 export default function MetasPage() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -411,13 +81,12 @@ export default function MetasPage() {
   const [metaHistoricoAtual, setMetaHistoricoAtual] = useState<MetaCalculada | null>(
     null
   );
-  // 🔥 V12 - edição de aporte
-const [aporteEditando, setAporteEditando] = useState<MetaAporteRow | null>(null);
-const [valorEditando, setValorEditando] = useState("");
-const [aporteInteligenteModalOpen, setAporteInteligenteModalOpen] = useState(false);
-const [metaInteligenteSelecionadaId, setMetaInteligenteSelecionadaId] = useState("");
-const [valorAporteInteligente, setValorAporteInteligente] = useState("");
-const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
+  const [aporteEditando, setAporteEditando] = useState<MetaAporteRow | null>(null);
+  const [valorEditando, setValorEditando] = useState("");
+  const [aporteInteligenteModalOpen, setAporteInteligenteModalOpen] = useState(false);
+  const [metaInteligenteSelecionadaId, setMetaInteligenteSelecionadaId] = useState("");
+  const [valorAporteInteligente, setValorAporteInteligente] = useState("");
+  const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
 
   const carregarDados = useCallback(async () => {
     try {
@@ -461,8 +130,7 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
 
       setMetas((metasData ?? []) as MetaRow[]);
       setAportes((aportesData ?? []) as MetaAporteRow[]);
-    } catch (e) {
-      console.error(e);
+    } catch {
       setErro("Não foi possível carregar suas metas agora.");
     } finally {
       setLoading(false);
@@ -607,30 +275,30 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
   }, [aportes, metasCalculadas]);
 
   const inteligenciaMetas = useMemo(() => {
-  const metasAtivas = metasCalculadas.filter((m) => m.status === "ativa" && m.faltante > 0);
+    const metasAtivas = metasCalculadas.filter((m) => m.status === "ativa" && m.faltante > 0);
 
-  if (metasAtivas.length === 0) return null;
+    if (metasAtivas.length === 0) return null;
 
-  const maisProxima = [...metasAtivas].sort((a, b) => a.faltante - b.faltante)[0];
+    const maisProxima = [...metasAtivas].sort((a, b) => a.faltante - b.faltante)[0];
 
-  const maisAtrasada = [...metasAtivas].sort((a, b) => a.percentual - b.percentual)[0];
+    const maisAtrasada = [...metasAtivas].sort((a, b) => a.percentual - b.percentual)[0];
 
-  const maisUrgente = [...metasAtivas].sort((a, b) => {
-    return (b.faltante / b.valorMetaNumero) - (a.faltante / a.valorMetaNumero);
-  })[0];
+    const maisUrgente = [...metasAtivas].sort((a, b) => {
+      return (b.faltante / b.valorMetaNumero) - (a.faltante / a.valorMetaNumero);
+    })[0];
 
-  const valorSugerido = Math.min(
-    Number(maisUrgente.faltante || 0),
-    Math.max(50, Number((Number(maisUrgente.faltante || 0) * 0.1).toFixed(2)))
-  );
+    const valorSugerido = Math.min(
+      Number(maisUrgente.faltante || 0),
+      Math.max(50, Number((Number(maisUrgente.faltante || 0) * 0.1).toFixed(2)))
+    );
 
-  return {
-    maisProxima,
-    maisAtrasada,
-    maisUrgente,
-    valorSugerido,
-  };
-}, [metasCalculadas]);
+    return {
+      maisProxima,
+      maisAtrasada,
+      maisUrgente,
+      valorSugerido,
+    };
+  }, [metasCalculadas]);
 
   function abrirNovaMeta() {
     setMetaEmEdicao(null);
@@ -719,8 +387,7 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
       setMetaEmEdicao(null);
       setMetaForm(getMetaFormInicial());
       await carregarDados();
-    } catch (e) {
-      console.error(e);
+    } catch {
       setErro("Não foi possível salvar a meta.");
     } finally {
       setSavingMeta(false);
@@ -745,8 +412,7 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
       if (error) throw error;
 
       await carregarDados();
-    } catch (e) {
-      console.error(e);
+    } catch {
       setErro("Não foi possível excluir a meta.");
     }
   }
@@ -769,89 +435,88 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
       if (error) throw error;
 
       await carregarDados();
-    } catch (e) {
-      console.error(e);
+    } catch {
       setErro("Não foi possível atualizar o status da meta.");
     }
   }
 
   async function salvarAporte(e: React.FormEvent<HTMLFormElement>) {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!userId || !metaAporteAtual) {
-    setErro("Meta inválida para lançamento.");
-    return;
-  }
-
-  if (!aporteForm.valor || Number(aporteForm.valor) <= 0) {
-    setErro("Informe um valor válido.");
-    return;
-  }
-
-  try {
-    setSavingAporte(true);
-    setErro(null);
-
-    const valorNumerico = Number(aporteForm.valor || 0);
-    const dataLancamento = aporteForm.data || getHoje();
-
-    const payloadAporte = {
-      user_id: userId,
-      meta_id: metaAporteAtual.id,
-      tipo: aporteForm.tipo,
-      valor: valorNumerico,
-      descricao: aporteForm.descricao.trim() || null,
-      data: dataLancamento,
-    };
-
-    const { data: aporteCriado, error: aporteError } = await supabase
-      .from("meta_aportes")
-      .insert(payloadAporte)
-      .select()
-      .single();
-
-    if (aporteError) throw aporteError;
-
-    const descricaoMovimentacao =
-      aporteForm.descricao.trim() ||
-      `${aporteForm.tipo === "retirada" ? "Retirada" : "Aporte"} - ${metaAporteAtual.nome}`;
-
-    const categoriaMovimentacao =
-      aporteForm.tipo === "retirada" ? "retirada_meta" : "aporte_meta";
-
-    const { error: movimentacaoError } = await supabase
-      .from("movimentacoes")
-      .insert({
-        tipo: "despesa",
-        descricao: descricaoMovimentacao,
-        categoria: categoriaMovimentacao,
-        valor: valorNumerico,
-        data: dataLancamento,
-        tipo_pagamento: "pix_dinheiro",
-        cartao_id: null,
-        parcelas: null,
-        primeira_cobranca: null,
-        meta_id: metaAporteAtual.id,
-        meta_aporte_id: aporteCriado.id,
-      });
-
-    if (movimentacaoError) {
-      await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
-      throw movimentacaoError;
+    if (!userId || !metaAporteAtual) {
+      setErro("Meta inválida para lançamento.");
+      return;
     }
 
-    setAporteModalOpen(false);
-    setMetaAporteAtual(null);
-    setAporteForm(getAporteFormInicial());
+    if (!aporteForm.valor || Number(aporteForm.valor) <= 0) {
+      setErro("Informe um valor válido.");
+      return;
+    }
 
-    await carregarDados();
-  } catch (e) {
-    console.error(e);
-    setErro("Não foi possível salvar o lançamento da meta.");
-  } finally {
-    setSavingAporte(false);
+    try {
+      setSavingAporte(true);
+      setErro(null);
+
+      const valorNumerico = Number(aporteForm.valor || 0);
+      const dataLancamento = aporteForm.data || getHoje();
+
+      const payloadAporte = {
+        user_id: userId,
+        meta_id: metaAporteAtual.id,
+        tipo: aporteForm.tipo,
+        valor: valorNumerico,
+        descricao: aporteForm.descricao.trim() || null,
+        data: dataLancamento,
+      };
+
+      const { data: aporteCriado, error: aporteError } = await supabase
+        .from("meta_aportes")
+        .insert(payloadAporte)
+        .select()
+        .single();
+
+      if (aporteError) throw aporteError;
+
+      const descricaoMovimentacao =
+        aporteForm.descricao.trim() ||
+        `${aporteForm.tipo === "retirada" ? "Retirada" : "Aporte"} - ${metaAporteAtual.nome}`;
+
+      const categoriaMovimentacao =
+        aporteForm.tipo === "retirada" ? "retirada_meta" : "aporte_meta";
+
+      const { error: movimentacaoError } = await supabase
+        .from("movimentacoes")
+        .insert({
+          tipo: "despesa",
+          descricao: descricaoMovimentacao,
+          categoria: categoriaMovimentacao,
+          valor: valorNumerico,
+          data: dataLancamento,
+          tipo_pagamento: "pix_dinheiro",
+          cartao_id: null,
+          parcelas: null,
+          primeira_cobranca: null,
+          meta_id: metaAporteAtual.id,
+          meta_aporte_id: aporteCriado.id,
+        });
+
+      if (movimentacaoError) {
+        await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
+        throw movimentacaoError;
+      }
+
+      setAporteModalOpen(false);
+      setMetaAporteAtual(null);
+      setAporteForm(getAporteFormInicial());
+
+      await carregarDados();
+    } catch {
+      setErro("Não foi possível salvar o lançamento da meta.");
+    } finally {
+      setSavingAporte(false);
+    }
   }
-}
+
   async function excluirAporte(item: MetaAporteRow) {
     const confirmar = window.confirm("Deseja excluir este lançamento?");
     if (!confirmar || !userId) return;
@@ -868,151 +533,113 @@ const [savingAporteInteligente, setSavingAporteInteligente] = useState(false);
       if (error) throw error;
 
       await carregarDados();
-    } catch (e) {
-      console.error(e);
+    } catch {
       setErro("Não foi possível excluir o lançamento.");
     }
   }
 
-async function confirmarAporteInteligente() {
-  if (!userId) {
-    setErro("Você precisa estar logado para registrar um aporte.");
-    return;
-  }
-
-  if (!metaInteligenteSelecionadaId) {
-    setErro("Selecione uma meta para continuar.");
-    return;
-  }
-
-  const meta = metasCalculadas.find((item) => item.id === metaInteligenteSelecionadaId);
-
-  if (!meta) {
-    setErro("Meta não encontrada.");
-    return;
-  }
-
-  const valorNumerico = Number(valorAporteInteligente || 0);
-
-  if (valorNumerico <= 0) {
-    setErro("Informe um valor válido para o aporte.");
-    return;
-  }
-
-  try {
-    setSavingAporteInteligente(true);
-    setErro(null);
-
-    const dataLancamento = getHoje();
-
-    const { data: aporteCriado, error: aporteError } = await supabase
-      .from("meta_aportes")
-      .insert({
-        user_id: userId,
-        meta_id: meta.id,
-        tipo: "aporte",
-        valor: valorNumerico,
-        descricao: `Aporte inteligente - ${meta.nome}`,
-        data: dataLancamento,
-      })
-      .select()
-      .single();
-
-    if (aporteError) throw aporteError;
-
-    const { error: movimentacaoError } = await supabase
-      .from("movimentacoes")
-      .insert({
-        tipo: "despesa",
-        descricao: `Aporte inteligente - ${meta.nome}`,
-        categoria: "aporte_meta",
-        valor: valorNumerico,
-        data: dataLancamento,
-        tipo_pagamento: "pix_dinheiro",
-        cartao_id: null,
-        parcelas: null,
-        primeira_cobranca: null,
-        meta_id: meta.id,
-        meta_aporte_id: aporteCriado.id,
-      });
-
-    if (movimentacaoError) {
-      await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
-      throw movimentacaoError;
+  async function confirmarAporteInteligente() {
+    if (!userId) {
+      setErro("Você precisa estar logado para registrar um aporte.");
+      return;
     }
 
-    setAporteInteligenteModalOpen(false);
-    setMetaInteligenteSelecionadaId("");
-    setValorAporteInteligente("");
+    if (!metaInteligenteSelecionadaId) {
+      setErro("Selecione uma meta para continuar.");
+      return;
+    }
 
-    await carregarDados();
-  } catch (e) {
-    console.error(e);
-    setErro("Não foi possível executar o aporte inteligente.");
-  } finally {
-    setSavingAporteInteligente(false);
+    const meta = metasCalculadas.find((item) => item.id === metaInteligenteSelecionadaId);
+
+    if (!meta) {
+      setErro("Meta não encontrada.");
+      return;
+    }
+
+    const valorNumerico = Number(valorAporteInteligente || 0);
+
+    if (valorNumerico <= 0) {
+      setErro("Informe um valor válido para o aporte.");
+      return;
+    }
+
+    try {
+      setSavingAporteInteligente(true);
+      setErro(null);
+
+      const dataLancamento = getHoje();
+
+      const { data: aporteCriado, error: aporteError } = await supabase
+        .from("meta_aportes")
+        .insert({
+          user_id: userId,
+          meta_id: meta.id,
+          tipo: "aporte",
+          valor: valorNumerico,
+          descricao: `Aporte inteligente - ${meta.nome}`,
+          data: dataLancamento,
+        })
+        .select()
+        .single();
+
+      if (aporteError) throw aporteError;
+
+      const { error: movimentacaoError } = await supabase
+        .from("movimentacoes")
+        .insert({
+          tipo: "despesa",
+          descricao: `Aporte inteligente - ${meta.nome}`,
+          categoria: "aporte_meta",
+          valor: valorNumerico,
+          data: dataLancamento,
+          tipo_pagamento: "pix_dinheiro",
+          cartao_id: null,
+          parcelas: null,
+          primeira_cobranca: null,
+          meta_id: meta.id,
+          meta_aporte_id: aporteCriado.id,
+        });
+
+      if (movimentacaoError) {
+        await supabase.from("meta_aportes").delete().eq("id", aporteCriado.id);
+        throw movimentacaoError;
+      }
+
+      setAporteInteligenteModalOpen(false);
+      setMetaInteligenteSelecionadaId("");
+      setValorAporteInteligente("");
+
+      await carregarDados();
+    } catch {
+      setErro("Não foi possível executar o aporte inteligente.");
+    } finally {
+      setSavingAporteInteligente(false);
+    }
   }
-}
 
-function abrirModalAporteInteligente() {
-  if (!inteligenciaMetas?.maisUrgente) {
-    setErro("Nenhuma meta disponível para aporte inteligente.");
-    return;
+  function abrirModalAporteInteligente() {
+    if (!inteligenciaMetas?.maisUrgente) {
+      setErro("Nenhuma meta disponível para aporte inteligente.");
+      return;
+    }
+
+    setErro(null);
+    setMetaInteligenteSelecionadaId(inteligenciaMetas.maisUrgente.id);
+    setValorAporteInteligente(String(inteligenciaMetas.valorSugerido));
+    setAporteInteligenteModalOpen(true);
   }
-
-  setErro(null);
-  setMetaInteligenteSelecionadaId(inteligenciaMetas.maisUrgente.id);
-  setValorAporteInteligente(String(inteligenciaMetas.valorSugerido));
-  setAporteInteligenteModalOpen(true);
-}
 
   const metaInteligenteSelecionada = useMemo(() => {
-  if (!metaInteligenteSelecionadaId) return null;
+    if (!metaInteligenteSelecionadaId) return null;
 
-  return metasCalculadas.find(
-    (item) => item.id === metaInteligenteSelecionadaId
-  ) ?? null;
-}, [metaInteligenteSelecionadaId, metasCalculadas]);
+    return metasCalculadas.find(
+      (item) => item.id === metaInteligenteSelecionadaId
+    ) ?? null;
+  }, [metaInteligenteSelecionadaId, metasCalculadas]);
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="rounded-4x1 border border-slate-200 bg-white px-6 py-8 shadow-sm">
-          <div className="h-5 w-32 animate-pulse rounded-full bg-slate-200" />
-          <div className="mt-4 h-10 w-72 animate-pulse rounded-2xl bg-slate-200" />
-          <div className="mt-3 h-4 w-80 animate-pulse rounded-full bg-slate-100" />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={index}
-              className="rounded-[28px] border border-slate-200 bg-white px-5 py-5 shadow-sm"
-            >
-              <div className="h-4 w-24 animate-pulse rounded-full bg-slate-200" />
-              <div className="mt-4 h-8 w-32 animate-pulse rounded-full bg-slate-200" />
-              <div className="mt-3 h-4 w-40 animate-pulse rounded-full bg-slate-100" />
-            </div>
-          ))}
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={index}
-              className="rounded-[28px] border border-slate-200 bg-white px-5 py-5 shadow-sm"
-            >
-              <div className="h-5 w-40 animate-pulse rounded-full bg-slate-200" />
-              <div className="mt-4 h-4 w-60 animate-pulse rounded-full bg-slate-100" />
-              <div className="mt-6 h-3 w-full animate-pulse rounded-full bg-slate-100" />
-              <div className="mt-6 h-10 w-full animate-pulse rounded-2xl bg-slate-100" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+    return <MetasSkeleton />;
   }
-
 
   if (!userId) {
     return (
@@ -1091,98 +718,29 @@ function abrirModalAporteInteligente() {
           tone="blue"
         />
 
-       <ResumoCard
-  titulo="Próxima meta"
-  valor={
-    resumo.metaMaisProxima
-      ? formatarMoeda(resumo.metaMaisProxima.faltante)
-      : "—"
-  }
-  subtitulo={
-    resumo.metaMaisProxima
-      ? `${resumo.metaMaisProxima.nome} é a mais próxima de concluir.`
-      : "Nenhuma meta ativa pendente no momento."
-  }
-  icon={<CalendarDays className="h-5 w-5" />}
-  tone="orange"
-/>
+        <ResumoCard
+          titulo="Próxima meta"
+          valor={
+            resumo.metaMaisProxima
+              ? formatarMoeda(resumo.metaMaisProxima.faltante)
+              : "—"
+          }
+          subtitulo={
+            resumo.metaMaisProxima
+              ? `${resumo.metaMaisProxima.nome} é a mais próxima de concluir.`
+              : "Nenhuma meta ativa pendente no momento."
+          }
+          icon={<CalendarDays className="h-5 w-5" />}
+          tone="orange"
+        />
       </section>
 
-{inteligenciaMetas && (
-  <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-    <div className="mb-4">
-      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-        Inteligência
-      </p>
-      <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">
-        Prioridade entre metas
-      </h2>
-      <p className="mt-2 text-sm leading-relaxed text-slate-500">
-        O app destaca automaticamente qual meta merece mais atenção agora.
-      </p>
-    </div>
-
-    <div className="grid gap-4 md:grid-cols-3">
-
-      <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4">
-        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-rose-600">
-          Mais urgente
-        </p>
-        <p className="mt-2 text-base font-semibold text-slate-900">
-          {inteligenciaMetas.maisUrgente.nome}
-        </p>
-        <p className="mt-1 text-sm text-slate-600">
-          Falta {formatarMoeda(inteligenciaMetas.maisUrgente.faltante)}
-        </p>
-      </div>
-
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4">
-        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-emerald-600">
-          Mais próxima
-        </p>
-        <p className="mt-2 text-base font-semibold text-slate-900">
-          {inteligenciaMetas.maisProxima.nome}
-        </p>
-        <p className="mt-1 text-sm text-slate-600">
-          Falta {formatarMoeda(inteligenciaMetas.maisProxima.faltante)}
-        </p>
-      </div>
-
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-amber-600">
-          Mais atrasada
-        </p>
-        <p className="mt-2 text-base font-semibold text-slate-900">
-          {inteligenciaMetas.maisAtrasada.nome}
-        </p>
-        <p className="mt-1 text-sm text-slate-600">
-          {inteligenciaMetas.maisAtrasada.percentual.toFixed(0)}% concluída
-        </p>
-      </div>
-
-        </div>
-
-    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
-      <div>
-        <p className="text-sm font-medium text-slate-900">
-          Sugestão de aporte agora
-        </p>
-        <p className="text-sm text-slate-500">
-          {inteligenciaMetas.maisUrgente.nome} • {formatarMoeda(inteligenciaMetas.valorSugerido)}
-        </p>
-      </div>
-
-      <button
-        type="button"
-        onClick={abrirModalAporteInteligente}
-        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-medium text-white transition hover:bg-slate-800"
-      >
-        <Plus className="h-4 w-4" />
-        Aportar agora
-      </button>
-    </div>
-  </section>
-)}
+      {inteligenciaMetas && (
+        <InteligenciaMetasSection
+          inteligencia={inteligenciaMetas}
+          onAporteInteligente={abrirModalAporteInteligente}
+        />
+      )}
 
       <section className="rounded-4x1border border-slate-200 bg-white shadow-sm">
         <div className="grid gap-4 border-b border-slate-200 px-6 py-5 xl:grid-cols-[1.3fr_220px_220px]">
@@ -1252,230 +810,19 @@ function abrirModalAporteInteligente() {
             </div>
           ) : (
             <div className="grid gap-4 xl:grid-cols-2">
-              {metasFiltradas.map((meta) => {
-                const statusClasses =
-                  meta.status === "ativa"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : meta.status === "pausada"
-                    ? "border-amber-200 bg-amber-50 text-amber-700"
-                    : meta.status === "concluida"
-                    ? "border-blue-200 bg-blue-50 text-blue-700"
-                    : "border-slate-200 bg-slate-50 text-slate-600";
-
-                return (
-                  <div
-                    key={meta.id}
-                    className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
-                  >
-                    <div className="flex flex-col gap-5">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-xl font-semibold tracking-tight text-slate-900">
-                              {meta.nome}
-                            </h3>
-
-                            <span
-                              className={classNames(
-                                "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-                                statusClasses
-                              )}
-                            >
-                              {getStatusLabel(meta.status)}
-                            </span>
-                          </div>
-
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                            {meta.tipo ? (
-                              <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                                {meta.tipo}
-                              </span>
-                            ) : null}
-
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                              Prioridade {meta.prioridadeLabel}
-                            </span>
-
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                              {meta.prazoFormatado}
-                            </span>
-
-                            {meta.considerar_na_dashboard ? (
-                              <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-700">
-                                Na dashboard
-                              </span>
-                            ) : null}
-                          </div>
-
-                          {meta.descricao ? (
-                            <p className="mt-3 text-sm leading-relaxed text-slate-500">
-                              {meta.descricao}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => abrirAporte(meta)}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
-                          >
-                            <Plus className="h-4 w-4" />
-                            Aportar
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => abrirHistorico(meta)}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                          >
-                            <History className="h-4 w-4" />
-                            Histórico
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-                            Guardado
-                          </p>
-                          <p className="mt-2 text-xl font-semibold text-slate-900">
-                            {formatarMoeda(meta.valorAtualCalculado)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-                            Meta
-                          </p>
-                          <p className="mt-2 text-xl font-semibold text-slate-900">
-                            {formatarMoeda(meta.valorMetaNumero)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-                            Falta
-                          </p>
-                          <p className="mt-2 text-xl font-semibold text-slate-900">
-                            {formatarMoeda(meta.faltante)}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="mb-2 flex items-center justify-between gap-4">
-                          <p className="text-sm font-medium text-slate-700">
-                            Progresso
-                          </p>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {meta.percentual.toFixed(0)}%
-                          </p>
-                        </div>
-
-                        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className="h-full rounded-full bg-slate-900 transition-all"
-                            style={{ width: `${meta.percentual}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-                            Ritmo atual
-                          </p>
-                          <p className="mt-2 text-base font-semibold text-slate-900">
-                            {formatarMoeda(meta.mediaMensalAportes)}/mês
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Média com base no histórico de aportes
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-                            Previsão
-                          </p>
-                          <p className="mt-2 text-base font-semibold text-slate-900">
-                            {meta.previsaoConclusaoTexto}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Estimativa com base no seu ritmo atual
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-                            Ideal por mês
-                          </p>
-                          <p className="mt-2 text-base font-semibold text-slate-900">
-                            {meta.valorIdealMensal !== null
-                              ? `${formatarMoeda(meta.valorIdealMensal)}/mês`
-                              : "Sem prazo"}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Para cumprir a meta até o prazo
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 border-t border-slate-200 pt-4">
-                        <button
-                          type="button"
-                          onClick={() => abrirEditarMeta(meta)}
-                          className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                        >
-                          <Pencil className="h-4 w-4" />
-                          Editar
-                        </button>
-
-                        {meta.status !== "pausada" ? (
-                          <button
-                            type="button"
-                            onClick={() => atualizarStatus(meta, "pausada")}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-700 transition hover:bg-amber-100"
-                          >
-                            <PauseCircle className="h-4 w-4" />
-                            Pausar
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => atualizarStatus(meta, "ativa")}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
-                          >
-                            <ArrowUpRight className="h-4 w-4" />
-                            Reativar
-                          </button>
-                        )}
-
-                        {meta.status !== "concluida" ? (
-                          <button
-                            type="button"
-                            onClick={() => atualizarStatus(meta, "concluida")}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700 transition hover:bg-blue-100"
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                            Concluir
-                          </button>
-                        ) : null}
-
-                        <button
-                          type="button"
-                          onClick={() => excluirMeta(meta)}
-                          className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-700 transition hover:bg-rose-100"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Excluir
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {metasFiltradas.map((meta) => (
+                <MetaCard
+                  key={meta.id}
+                  meta={meta}
+                  onAporte={abrirAporte}
+                  onHistorico={abrirHistorico}
+                  onEditar={abrirEditarMeta}
+                  onPausar={(m) => atualizarStatus(m, "pausada")}
+                  onReativar={(m) => atualizarStatus(m, "ativa")}
+                  onConcluir={(m) => atualizarStatus(m, "concluida")}
+                  onExcluir={excluirMeta}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -1811,13 +1158,13 @@ function abrirModalAporteInteligente() {
 
                   return (
                     <div
-  key={item.id}
-  onClick={() => {
-    setAporteEditando(item);
-    setValorEditando(String(item.valor));
-  }}
-  className="rounded-3x1 border border-slate-200 bg-white px-5 py-4 shadow-sm cursor-pointer hover:bg-slate-50"
->
+                      key={item.id}
+                      onClick={() => {
+                        setAporteEditando(item);
+                        setValorEditando(String(item.valor));
+                      }}
+                      className="rounded-3x1 border border-slate-200 bg-white px-5 py-4 shadow-sm cursor-pointer hover:bg-slate-50"
+                    >
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
@@ -1892,150 +1239,144 @@ function abrirModalAporteInteligente() {
           </div>
         </ModalShell>
       ) : null}
+
       {aporteEditando && (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4">
+            <h2 className="text-lg font-semibold">Editar aporte</h2>
 
-    <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4">
+            <input
+              value={valorEditando}
+              onChange={(e) => setValorEditando(e.target.value)}
+              className="w-full border rounded-xl p-3"
+            />
 
-      <h2 className="text-lg font-semibold">Editar aporte</h2>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  await supabase
+                    .from("meta_aportes")
+                    .update({ valor: Number(valorEditando) })
+                    .eq("id", aporteEditando.id);
 
-      <input
-        value={valorEditando}
-        onChange={(e) => setValorEditando(e.target.value)}
-        className="w-full border rounded-xl p-3"
-      />
+                  setAporteEditando(null);
+                  carregarDados();
+                }}
+                className="flex-1 bg-black text-white rounded-xl p-3"
+              >
+                Salvar
+              </button>
 
-      <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  await supabase
+                    .from("meta_aportes")
+                    .delete()
+                    .eq("id", aporteEditando.id);
 
-        <button
-          onClick={async () => {
-            await supabase
-              .from("meta_aportes")
-              .update({ valor: Number(valorEditando) })
-              .eq("id", aporteEditando.id);
-
-            setAporteEditando(null);
-            carregarDados();
-          }}
-          className="flex-1 bg-black text-white rounded-xl p-3"
-        >
-          Salvar
-        </button>
-
-        <button
-          onClick={async () => {
-            await supabase
-              .from("meta_aportes")
-              .delete()
-              .eq("id", aporteEditando.id);
-
-            setAporteEditando(null);
-            carregarDados();
-          }}
-          className="flex-1 border rounded-xl p-3"
-        >
-          Excluir
-        </button>
-
-      </div>
-    </div>
-  </div>
-)}
-{aporteInteligenteModalOpen && (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-
-    <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4">
-
-      <h2 className="text-lg font-semibold">Aporte inteligente</h2>
-
-      <select
-        value={metaInteligenteSelecionadaId}
-        onChange={(e) => setMetaInteligenteSelecionadaId(e.target.value)}
-        className="w-full border rounded-xl p-3"
-      >
-        {metasCalculadas
-          .filter((m) => m.status === "ativa" && m.faltante > 0)
-          .map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.nome}
-            </option>
-          ))}
-      </select>
-
-      <input
-        type="number"
-        value={valorAporteInteligente}
-        onChange={(e) => setValorAporteInteligente(e.target.value)}
-        className="w-full border rounded-xl p-3"
-      />
-
-      {metaInteligenteSelecionada && (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-              Guardado
-            </p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">
-              {formatarMoeda(metaInteligenteSelecionada.valorAtualCalculado)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-              Falta
-            </p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">
-              {formatarMoeda(metaInteligenteSelecionada.faltante)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-              Progresso
-            </p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">
-              {metaInteligenteSelecionada.percentual.toFixed(0)}%
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
-              Ideal por mês
-            </p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">
-              {metaInteligenteSelecionada.valorIdealMensal !== null
-                ? formatarMoeda(metaInteligenteSelecionada.valorIdealMensal)
-                : "Sem prazo"}
-            </p>
+                  setAporteEditando(null);
+                  carregarDados();
+                }}
+                className="flex-1 border rounded-xl p-3"
+              >
+                Excluir
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      <div className="flex gap-2">
+      {aporteInteligenteModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4">
+            <h2 className="text-lg font-semibold">Aporte inteligente</h2>
 
-        <button
-          onClick={() => {
-            setAporteInteligenteModalOpen(false);
-            setMetaInteligenteSelecionadaId("");
-            setValorAporteInteligente("");
-          }}
-          className="flex-1 border rounded-xl p-3"
-        >
-          Cancelar
-        </button>
+            <select
+              value={metaInteligenteSelecionadaId}
+              onChange={(e) => setMetaInteligenteSelecionadaId(e.target.value)}
+              className="w-full border rounded-xl p-3"
+            >
+              {metasCalculadas
+                .filter((m) => m.status === "ativa" && m.faltante > 0)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nome}
+                  </option>
+                ))}
+            </select>
 
-        <button
-          onClick={confirmarAporteInteligente}
-            disabled={savingAporteInteligente}
-            className="flex-1 bg-black text-white rounded-xl p-3 disabled:opacity-50"
-        >
-          Confirmar
-        </button>
+            <input
+              type="number"
+              value={valorAporteInteligente}
+              onChange={(e) => setValorAporteInteligente(e.target.value)}
+              className="w-full border rounded-xl p-3"
+            />
 
-      </div>
-    </div>
-  </div>
-)}
+            {metaInteligenteSelecionada && (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                    Guardado
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">
+                    {formatarMoeda(metaInteligenteSelecionada.valorAtualCalculado)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                    Falta
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">
+                    {formatarMoeda(metaInteligenteSelecionada.faltante)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                    Progresso
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">
+                    {metaInteligenteSelecionada.percentual.toFixed(0)}%
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                    Ideal por mês
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">
+                    {metaInteligenteSelecionada.valorIdealMensal !== null
+                      ? formatarMoeda(metaInteligenteSelecionada.valorIdealMensal)
+                      : "Sem prazo"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setAporteInteligenteModalOpen(false);
+                  setMetaInteligenteSelecionadaId("");
+                  setValorAporteInteligente("");
+                }}
+                className="flex-1 border rounded-xl p-3"
+              >
+                Cancelar
+              </button>
+
+              <button
+                onClick={confirmarAporteInteligente}
+                disabled={savingAporteInteligente}
+                className="flex-1 bg-black text-white rounded-xl p-3 disabled:opacity-50"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -266,8 +266,7 @@ export default function PerfilPage() {
           nome,
           sobrenome,
         });
-      } catch (error) {
-        console.error(error);
+      } catch {
         setErroPerfil("Não foi possível carregar os dados do perfil.");
       } finally {
         setLoading(false);
@@ -310,8 +309,7 @@ export default function PerfilPage() {
 
       setSucessoPerfil("Perfil atualizado com sucesso.");
       router.refresh();
-    } catch (error) {
-      console.error(error);
+    } catch {
       setErroPerfil("Erro ao atualizar perfil.");
     } finally {
       setSavingPerfil(false);
@@ -356,8 +354,7 @@ export default function PerfilPage() {
       });
 
       setSucessoSenha("Senha atualizada com sucesso.");
-    } catch (error) {
-      console.error(error);
+    } catch {
       setErroSenha("Erro ao atualizar senha.");
     } finally {
       setSavingSenha(false);
@@ -385,8 +382,7 @@ export default function PerfilPage() {
       await supabase.auth.signOut();
       router.push("/login");
       router.refresh();
-    } catch (error) {
-      console.error(error);
+    } catch {
       setErroExcluir("Erro ao excluir a conta.");
     } finally {
       setDeletingConta(false);

@@ -38,17 +38,25 @@ export async function DELETE() {
       }
     );
 
-    // Apague aqui dados vinculados ao usuário, se necessário.
-    // Se suas tabelas já usam user_id + cascade em relações internas,
-    // estes deletes ajudam a limpar a base antes de remover o auth user.
+    // Apague dados vinculados ao usuário em todas as tabelas,
+    // respeitando a ordem de dependência (filhas antes de pais).
 
+    await admin.from("rv_lancamento_itens").delete().eq("user_id", user.id);
+    await admin.from("rv_lancamento_custos").delete().eq("user_id", user.id);
+    await admin.from("rv_transferencias").delete().eq("user_id", user.id);
+    await admin.from("rv_lancamentos").delete().eq("user_id", user.id);
+    await admin.from("rv_insumos").delete().eq("user_id", user.id);
+    await admin.from("rv_categorias_custo").delete().eq("user_id", user.id);
+    await admin.from("rv_configuracoes").delete().eq("user_id", user.id);
+    await admin.from("rv_perfis").delete().eq("user_id", user.id);
+    await admin.from("faturas_pagamento").delete().eq("user_id", user.id);
+    await admin.from("pagamentos_contas").delete().eq("user_id", user.id);
+    await admin.from("movimentacoes_categorias").delete().eq("user_id", user.id);
+    await admin.from("movimentacoes").delete().eq("user_id", user.id);
+    await admin.from("cartoes").delete().eq("user_id", user.id);
+    await admin.from("contas_fixas").delete().eq("user_id", user.id);
     await admin.from("meta_aportes").delete().eq("user_id", user.id);
     await admin.from("metas").delete().eq("user_id", user.id);
-
-    // Adicione aqui outras tabelas do seu app, se existirem:
-    // await admin.from("movimentacoes").delete().eq("user_id", user.id);
-    // await admin.from("cartoes").delete().eq("user_id", user.id);
-    // await admin.from("contas").delete().eq("user_id", user.id);
 
     const { error: deleteAuthError } = await admin.auth.admin.deleteUser(user.id);
 
@@ -60,8 +68,7 @@ export async function DELETE() {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Erro ao excluir conta:", error);
+  } catch {
     return NextResponse.json(
       { error: "Erro interno ao excluir conta." },
       { status: 500 }

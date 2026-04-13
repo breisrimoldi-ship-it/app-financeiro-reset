@@ -2,6 +2,27 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { TIPO_RV_LABEL, type TipoRvLancamento } from "../_lib/tipos";
+import type {
+  CustoDia,
+  TipoLancamento,
+  ModoIntervalo,
+  InsumoSelecionado,
+  CustoManualItem,
+  DiaDetalhado,
+  Props,
+} from "./_lib/types";
+import {
+  formatCurrency,
+  getHoje,
+  getDatesInRange,
+  distributeAmount,
+  createEmptyCost,
+  createDay,
+  createEmptyInsumoSelecionado,
+  createEmptyCustoManual,
+  parseHorasToDecimal,
+  normalizarHorasInput,
+} from "./_lib/utils";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -18,263 +39,10 @@ import {
 } from "lucide-react";
 import { criarLancamentosRendaVariavel } from "./actions";
 
-type CategoriaCusto = {
-  id: string;
-  nome: string;
-  ativo: boolean;
-  descricao_padrao: string | null;
-  valor_padrao: number | null;
-  usar_valor_padrao: boolean;
-};
-
-type Perfil = {
-  id: string;
-  nome: string;
-};
-
-type Insumo = {
-  id: string;
-  nome: string;
-  unidade: string;
-  valor_base: number | null;
-  categoria_id: string | null;
-  ativo: boolean | null;
-};
-
-type TipoLancamento = "unico" | "intervalo";
-type ModoIntervalo = "resumo" | "dia-a-dia";
-
-type CustoDia = {
-  id: string;
-  categoriaId: string;
-  descricao: string;
-  valor: string;
-};
-
-type DiaDetalhado = {
-  data: string;
-  ativo: boolean;
-  descricao: string;
-  valorRecebido: string;
-  horas: string;
-  quantidade: string;
-  observacao: string;
-  custos: CustoDia[];
-};
-
-type InsumoSelecionado = {
-  id: string;
-  insumoId: string;
-  quantidade: string;
-  valorUnitario: string;
-};
-
-type CustoManualItem = {
-  id: string;
-  categoriaId: string;
-  descricao: string;
-  valor: string;
-};
-
-const perfisMock: Perfil[] = [
-  { id: "1", nome: "Motorista" },
-  { id: "2", nome: "Confeitaria" },
-  { id: "3", nome: "Freelancer" },
-  { id: "4", nome: "Personalizado" },
-];
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
-}
-
-function getHoje() {
-  const hoje = new Date();
-  const ano = hoje.getFullYear();
-  const mes = String(hoje.getMonth() + 1).padStart(2, "0");
-  const dia = String(hoje.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-}
-
-function getDatesInRange(start: string, end: string) {
-  if (!start || !end) return [];
-
-  const startDate = new Date(`${start}T12:00:00`);
-  const endDate = new Date(`${end}T12:00:00`);
-
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-    return [];
-  }
-
-  if (startDate > endDate) return [];
-
-  const dates: string[] = [];
-  const current = new Date(startDate);
-
-  while (current <= endDate) {
-    const year = current.getFullYear();
-    const month = String(current.getMonth() + 1).padStart(2, "0");
-    const day = String(current.getDate()).padStart(2, "0");
-    dates.push(`${year}-${month}-${day}`);
-    current.setDate(current.getDate() + 1);
-  }
-
-  return dates;
-}
-
-function distributeAmount(total: number, count: number) {
-  if (count <= 0) return [];
-  const totalCents = Math.round(total * 100);
-  const base = Math.floor(totalCents / count);
-  const remainder = totalCents - base * count;
-
-  return Array.from({ length: count }, (_, index) => {
-    const cents = base + (index === count - 1 ? remainder : 0);
-    return cents / 100;
-  });
-}
-
-function createEmptyCost(): CustoDia {
-  return {
-    id: crypto.randomUUID(),
-    categoriaId: "",
-    descricao: "",
-    valor: "",
-  };
-}
-
-function createDay(date: string, descricaoBase: string): DiaDetalhado {
-  return {
-    data: date,
-    ativo: true,
-    descricao: descricaoBase,
-    valorRecebido: "",
-    horas: "",
-    quantidade: "",
-    observacao: "",
-    custos: [],
-  };
-}
-
-function createEmptyInsumoSelecionado(): InsumoSelecionado {
-  return {
-    id: crypto.randomUUID(),
-    insumoId: "",
-    quantidade: "",
-    valorUnitario: "",
-  };
-}
-
-function createEmptyCustoManual(): CustoManualItem {
-  return {
-    id: crypto.randomUUID(),
-    categoriaId: "",
-    descricao: "",
-    valor: "",
-  };
-}
-
-function parseHorasToDecimal(valor: string) {
-  const texto = valor.trim().toLowerCase();
-
-  if (!texto) return 0;
-
-  let match = texto.match(/^(\d{1,2})h(\d{1,2})min$/);
-  if (match) {
-    const horas = Number(match[1]) || 0;
-    const minutos = Number(match[2]) || 0;
-    return horas + minutos / 60;
-  }
-
-  match = texto.match(/^(\d{1,2}):(\d{1,2})$/);
-  if (match) {
-    const horas = Number(match[1]) || 0;
-    const minutos = Number(match[2]) || 0;
-    return horas + minutos / 60;
-  }
-
-  match = texto.match(/^(\d{1,2})h(\d{1,2})$/);
-  if (match) {
-    const horas = Number(match[1]) || 0;
-    const minutos = Number(match[2]) || 0;
-    return horas + minutos / 60;
-  }
-
-  match = texto.match(/^(\d{1,2})h$/);
-  if (match) {
-    const horas = Number(match[1]) || 0;
-    return horas;
-  }
-
-  match = texto.match(/^(\d{1,2})$/);
-  if (match) {
-    const horas = Number(match[1]) || 0;
-    return horas;
-  }
-
-  return 0;
-}
-
-function normalizarHorasInput(valor: string) {
-  const texto = valor.replace(/\s/g, "").toLowerCase();
-
-  if (!texto) return "";
-
-  let match = texto.match(/^(\d{1,2})h(\d{1,2})min$/);
-  if (match) {
-    const horas = String(Math.min(Number(match[1]) || 0, 23)).padStart(2, "0");
-    const minutos = String(Math.min(Number(match[2]) || 0, 59)).padStart(
-      2,
-      "0"
-    );
-    return `${horas}h${minutos}min`;
-  }
-
-  match = texto.match(/^(\d{1,2}):(\d{1,2})$/);
-  if (match) {
-    const horas = String(Math.min(Number(match[1]) || 0, 23)).padStart(2, "0");
-    const minutos = String(Math.min(Number(match[2]) || 0, 59)).padStart(
-      2,
-      "0"
-    );
-    return `${horas}h${minutos}min`;
-  }
-
-  match = texto.match(/^(\d{1,2})h(\d{1,2})$/);
-  if (match) {
-    const horas = String(Math.min(Number(match[1]) || 0, 23)).padStart(2, "0");
-    const minutos = String(Math.min(Number(match[2]) || 0, 59)).padStart(
-      2,
-      "0"
-    );
-    return `${horas}h${minutos}min`;
-  }
-
-  match = texto.match(/^(\d{1,2})h$/);
-  if (match) {
-    const horas = String(Math.min(Number(match[1]) || 0, 23)).padStart(2, "0");
-    return `${horas}h00min`;
-  }
-
-  match = texto.match(/^(\d{1,2})$/);
-  if (match) {
-    const horas = String(Math.min(Number(match[1]) || 0, 23)).padStart(2, "0");
-    return `${horas}h00min`;
-  }
-
-  return valor;
-}
-
-type Props = {
-  categorias: CategoriaCusto[];
-  insumos: Insumo[];
-};
-
 export default function NovoLancamentoClient({
   categorias,
   insumos,
+  perfis,
 }: Props) {
   const [isPending, startTransition] = useTransition();
 
@@ -288,7 +56,7 @@ export default function NovoLancamentoClient({
   const [dataFim, setDataFim] = useState(getHoje());
 
   const [descricao, setDescricao] = useState("");
-  const [perfilId, setPerfilId] = useState(perfisMock[0]?.id ?? "");
+  const [perfilId, setPerfilId] = useState(perfis[0]?.id ?? "");
   const [valorRecebido, setValorRecebido] = useState("");
   const [cliente, setCliente] = useState("");
   const [horasTrabalhadas, setHorasTrabalhadas] = useState("");
@@ -660,7 +428,7 @@ export default function NovoLancamentoClient({
       setErro("");
 
       const perfilSelecionado =
-        perfisMock.find((perfil) => perfil.id === perfilId)?.nome ?? "";
+        perfis.find((perfil) => perfil.id === perfilId)?.nome ?? "";
 
       if (
         (tipoLancamento === "unico" || modoIntervalo === "resumo") &&
@@ -1092,7 +860,7 @@ export default function NovoLancamentoClient({
                     onChange={(e) => setPerfilId(e.target.value)}
                     className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400"
                   >
-                    {perfisMock.map((perfil) => (
+                    {perfis.map((perfil) => (
                       <option key={perfil.id} value={perfil.id}>
                         {perfil.nome}
                       </option>
@@ -1169,21 +937,21 @@ export default function NovoLancamentoClient({
                     </div>
 
                     <div className="space-y-2 md:col-span-2">
-  <label className="text-sm font-medium text-zinc-700">
-    Tipo de lançamento financeiro
-  </label>
-  <select
-    value={tipoRv}
-    onChange={(e) => setTipoRv(e.target.value as TipoRvLancamento)}
-    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400"
-  >
-    {Object.entries(TIPO_RV_LABEL).map(([value, label]) => (
-      <option key={value} value={value}>
-        {label}
-      </option>
-    ))}
-  </select>
-</div>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Tipo de lançamento financeiro
+                      </label>
+                      <select
+                        value={tipoRv}
+                        onChange={(e) => setTipoRv(e.target.value as TipoRvLancamento)}
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-400"
+                      >
+                        {Object.entries(TIPO_RV_LABEL).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-zinc-700">
@@ -1255,7 +1023,7 @@ export default function NovoLancamentoClient({
                         Nenhum insumo adicionado neste lançamento.
                       </p>
                       <p className="mt-1 text-sm text-zinc-500">
-                        Clique em “Adicionar insumo” para escolher o que deseja usar.
+                        Clique em &quot;Adicionar insumo&quot; para escolher o que deseja usar.
                       </p>
                     </div>
                   ) : (

@@ -169,7 +169,6 @@ const descricaoComTipo = `[${input.tipoRv}] ${input.descricao.trim()}`;
     revalidatePath("/renda-variavel");
     redirect("/renda-variavel");
   } catch (error) {
-    console.error("Erro completo ao salvar renda variável:", error);
     throw error;
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ChangeEvent, FormEvent, ReactNode } from "react";
+import type { ChangeEvent } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -17,68 +17,44 @@ import {
   Settings2,
   Trash2,
   WalletCards,
-  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { PageShell } from "@/components/layout/page-shell";
 import { SectionCard } from "@/components/ui/section-card";
 
-type AbaCartoes = "visao" | "faturas" | "cartoes" | "ajustes";
+import type {
+  AbaCartoes,
+  Cartao,
+  DespesaCartao,
+  LinhaSaldoInicial,
+  ModalPagamentoState,
+  PagamentoFatura,
+  ParcelaProjetada,
+} from "./_lib/types";
 
-type Cartao = {
-  id: number;
-  nome: string;
-  limite: number | string | null;
-  fechamento_dia: number;
-  vencimento_dia: number;
-  created_at?: string;
-};
+import {
+  adicionarMeses,
+  formatarDataPadraoBrasil,
+  formatarMes,
+  formatarVencimento,
+  getDataHoje,
+  getMesAtual,
+  getProximaCompetencia,
+  moeda,
+  obterStatusFatura,
+} from "./_lib/utils";
 
-type DespesaCartao = {
-  id: number;
-  descricao?: string | null;
-  valor: number;
-  tipo: string;
-  tipo_pagamento: string;
-  categoria?: string | null;
-  parcelas: number | null;
-  primeira_cobranca: string | null;
-  cartao_id: number | null;
-  data: string;
-};
-
-type PagamentoFatura = {
-  id: number;
-  cartao_id: number;
-  mes_referencia: string;
-  valor_pago: number;
-  data_pagamento: string | null;
-  status: string;
-};
-
-type ParcelaProjetada = {
-  despesaId: number;
-  descricao: string;
-  valor: number;
-  parcelaAtual: number;
-  totalParcelas: number;
-  mes: string;
-};
-
-type LinhaSaldoInicial = {
-  mes: string;
-  valor: string;
-};
-
-type ModalPagamentoState = {
-  aberto: boolean;
-  cartaoId: number | null;
-  cartaoNome: string;
-  mesReferencia: string;
-  valorTotal: number;
-  valorPagoAtual: number;
-  valorRestante: number;
-};
+import {
+  AbaButton,
+  EmptyCard,
+  FieldBlock,
+  MiniResumo,
+  MiniResumoBox,
+  ResumoCard,
+  StatusInfo,
+} from "./_components/ui-primitives";
+import { SheetCartao } from "./_components/sheet-cartao";
+import { ModalPagamento } from "./_components/modal-pagamento";
 
 const supabase = createClient();
 
@@ -106,9 +82,9 @@ export default function CartoesPage() {
   const [cartaoSaldoInicialId, setCartaoSaldoInicialId] = useState("");
   const [mesInicialSaldo, setMesInicialSaldo] = useState(getMesAtual());
   const [quantidadeMesesSaldo, setQuantidadeMesesSaldo] = useState("1");
-  const [linhasSaldoInicial, setLinhasSaldoInicial] = useState<LinhaSaldoInicial[]>([
-    { mes: getMesAtual(), valor: "" },
-  ]);
+  const [linhasSaldoInicial, setLinhasSaldoInicial] = useState<
+    LinhaSaldoInicial[]
+  >([{ mes: getMesAtual(), valor: "" }]);
   const [salvandoSaldoInicial, setSalvandoSaldoInicial] = useState(false);
 
   const [modalPagamento, setModalPagamento] = useState<ModalPagamentoState>({
@@ -141,25 +117,24 @@ export default function CartoesPage() {
         .eq("tipo_pagamento", "credito"),
       supabase
         .from("faturas_pagamento")
-        .select("id, cartao_id, mes_referencia, valor_pago, data_pagamento, status"),
+        .select(
+          "id, cartao_id, mes_referencia, valor_pago, data_pagamento, status"
+        ),
     ]);
 
     if (cartoesError) {
-      console.error("Erro ao buscar cartões:", cartoesError);
       alert("Erro ao carregar cartões.");
       if (showLoading) setLoading(false);
       return;
     }
 
     if (movimentacoesError) {
-      console.error("Erro ao buscar movimentações de cartão:", movimentacoesError);
       alert("Erro ao carregar despesas dos cartões.");
       if (showLoading) setLoading(false);
       return;
     }
 
     if (pagamentosError) {
-      console.error("Erro ao buscar pagamentos:", pagamentosError);
       alert("Erro ao carregar pagamentos das faturas.");
       if (showLoading) setLoading(false);
       return;
@@ -223,12 +198,14 @@ export default function CartoesPage() {
         : String(cartao.limite)
     );
     setFechamentoDia(
-      cartao.fechamento_dia === null || Number.isNaN(Number(cartao.fechamento_dia))
+      cartao.fechamento_dia === null ||
+        Number.isNaN(Number(cartao.fechamento_dia))
         ? ""
         : String(cartao.fechamento_dia)
     );
     setVencimentoDia(
-      cartao.vencimento_dia === null || Number.isNaN(Number(cartao.vencimento_dia))
+      cartao.vencimento_dia === null ||
+        Number.isNaN(Number(cartao.vencimento_dia))
         ? ""
         : String(cartao.vencimento_dia)
     );
@@ -242,19 +219,8 @@ export default function CartoesPage() {
     const { error } = await supabase.from("cartoes").delete().eq("id", id);
 
     if (error) {
-      console.error("Erro ao excluir cartão:", {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-        full: error,
-      });
-
       alert(
-        `Erro ao excluir cartão:
-${error.message ?? "sem mensagem"}
-${error.details ? `\nDetails: ${error.details}` : ""}
-${error.hint ? `\nHint: ${error.hint}` : ""}`
+        `Erro ao excluir cartão:\n${error.message ?? "sem mensagem"}${error.details ? `\nDetails: ${error.details}` : ""}${error.hint ? `\nHint: ${error.hint}` : ""}`
       );
       return;
     }
@@ -262,7 +228,7 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
     await carregarDados(false);
   }
 
-  async function handleSalvarCartao(e: FormEvent<HTMLFormElement>) {
+  async function handleSalvarCartao(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     if (!nome.trim() || !limite || !fechamentoDia || !vencimentoDia) {
@@ -311,19 +277,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         .eq("id", idEmEdicao);
 
       if (error) {
-        console.error("Erro ao salvar cartão:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-          full: error,
-        });
-
         alert(
-          `Erro ao salvar cartão:
-${error.message ?? "sem mensagem"}
-${error.details ? `\nDetails: ${error.details}` : ""}
-${error.hint ? `\nHint: ${error.hint}` : ""}`
+          `Erro ao salvar cartão:\n${error.message ?? "sem mensagem"}${error.details ? `\nDetails: ${error.details}` : ""}${error.hint ? `\nHint: ${error.hint}` : ""}`
         );
         return;
       }
@@ -336,7 +291,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
     const { error } = await supabase.from("cartoes").insert([payload]);
 
     if (error) {
-      console.error("Erro ao salvar cartão:", error);
       alert("Erro ao salvar cartão.");
       return;
     }
@@ -352,7 +306,10 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
     valorTotal: number;
     valorPagoAtual: number;
   }) {
-    const valorRestante = Math.max(params.valorTotal - params.valorPagoAtual, 0);
+    const valorRestante = Math.max(
+      params.valorTotal - params.valorPagoAtual,
+      0
+    );
 
     setModalPagamento({
       aberto: true,
@@ -364,9 +321,7 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
       valorRestante,
     });
 
-    setValorPagamentoModal(
-      valorRestante > 0 ? valorRestante.toFixed(2) : ""
-    );
+    setValorPagamentoModal(valorRestante > 0 ? valorRestante.toFixed(2) : "");
   }
 
   function fecharModalPagamento() {
@@ -417,7 +372,11 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
       const novoRestante = Math.max(valorTotal - novoValorPago, 0);
 
       const novoStatus =
-        novoValorPago <= 0 ? "aberta" : novoRestante <= 0 ? "paga" : "parcial";
+        novoValorPago <= 0
+          ? "aberta"
+          : novoRestante <= 0
+            ? "paga"
+            : "parcial";
 
       if (pagamentoExistente) {
         const { data, error } = await supabase
@@ -432,7 +391,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
           .single();
 
         if (error) {
-          console.error("Erro ao atualizar pagamento:", error);
           alert("Erro ao atualizar pagamento da fatura.");
           return;
         }
@@ -466,7 +424,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         .single();
 
       if (error) {
-        console.error("Erro ao registrar pagamento:", error);
         alert("Erro ao registrar pagamento da fatura.");
         return;
       }
@@ -524,7 +481,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         .single();
 
       if (error) {
-        console.error("Erro ao desfazer pagamento:", error);
         alert("Erro ao desfazer pagamento da fatura.");
         return;
       }
@@ -609,7 +565,6 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
       const { error } = await supabase.from("movimentacoes").insert(registros);
 
       if (error) {
-        console.error("Erro ao salvar saldo inicial:", error);
         alert("Erro ao salvar saldo inicial.");
         return;
       }
@@ -727,7 +682,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
       const meses = Object.entries(porMes)
         .map(([mes, itens]) => {
           const pagamento = pagamentos.find(
-            (item) => item.cartao_id === cartao.id && item.mes_referencia === mes
+            (item) =>
+              item.cartao_id === cartao.id && item.mes_referencia === mes
           );
 
           const total = itens.reduce((acc, item) => acc + item.valor, 0);
@@ -761,7 +717,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         meses.find((item) => item.mes > competenciaProxima) ||
         null;
 
-      const faturaMesAtual = meses.find((item) => item.mes === mesAtual) || null;
+      const faturaMesAtual =
+        meses.find((item) => item.mes === mesAtual) || null;
 
       const totalUsadoAtual = despesasDoCartao.reduce(
         (acc, item) => acc + Number(item.valor),
@@ -825,7 +782,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                 Gestão unificada de cartões
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Acompanhe visão geral, faturas, cartões cadastrados e saldo inicial.
+                Acompanhe visão geral, faturas, cartões cadastrados e saldo
+                inicial.
               </p>
             </div>
 
@@ -890,7 +848,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                     Resumo geral
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
-                    Visão consolidada dos cartões cadastrados e do total já comprometido.
+                    Visão consolidada dos cartões cadastrados e do total já
+                    comprometido.
                   </p>
                 </div>
 
@@ -899,8 +858,14 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                     label="Despesas no cartão"
                     value={String(totalDespesasCartao)}
                   />
-                  <MiniResumo label="Média de limite" value={moeda(mediaLimite)} />
-                  <MiniResumo label="Total lançado" value={moeda(totalLancadoGeral)} />
+                  <MiniResumo
+                    label="Média de limite"
+                    value={moeda(mediaLimite)}
+                  />
+                  <MiniResumo
+                    label="Total lançado"
+                    value={moeda(totalLancadoGeral)}
+                  />
                   <MiniResumo
                     label="Parcelado futuro"
                     value={moeda(totalParceladoFuturoGeral)}
@@ -918,7 +883,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                 resumosCartoes.map((cartaoResumo) => {
                   const percentualUso = cartaoResumo.percentualUso;
                   const estourado = cartaoResumo.limiteDisponivel < 0;
-                  const cartao = cartoes.find((item) => item.id === cartaoResumo.id);
+                  const cartao = cartoes.find(
+                    (item) => item.id === cartaoResumo.id
+                  );
 
                   return (
                     <div
@@ -980,7 +947,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                         />
                         <StatusInfo
                           label="Status"
-                          value={estourado ? "Limite estourado" : "Dentro do limite"}
+                          value={
+                            estourado ? "Limite estourado" : "Dentro do limite"
+                          }
                           danger={estourado}
                           success={!estourado}
                         />
@@ -990,9 +959,7 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-slate-600">Uso do limite</span>
                           <span
-                            className={`font-medium ${
-                              estourado ? "text-red-600" : "text-slate-900"
-                            }`}
+                            className={`font-medium ${estourado ? "text-red-600" : "text-slate-900"}`}
                           >
                             {percentualUso.toFixed(1)}%
                           </span>
@@ -1000,10 +967,10 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
 
                         <div className="h-3 w-full rounded-full bg-slate-200">
                           <div
-                            className={`h-3 rounded-full transition-all ${
-                              estourado ? "bg-red-500" : "bg-slate-900"
-                            }`}
-                            style={{ width: `${Math.min(percentualUso, 100)}%` }}
+                            className={`h-3 rounded-full transition-all ${estourado ? "bg-red-500" : "bg-slate-900"}`}
+                            style={{
+                              width: `${Math.min(percentualUso, 100)}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -1045,7 +1012,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                       <button
                         type="button"
                         className="w-full px-6 py-6 text-left"
-                        onClick={() => setCartaoAberto(aberto ? null : cartao.id)}
+                        onClick={() =>
+                          setCartaoAberto(aberto ? null : cartao.id)
+                        }
                       >
                         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                           <div className="space-y-1">
@@ -1068,7 +1037,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                             <MiniResumoBox
                               label="Próxima fatura"
                               value={
-                                proximaFatura ? moeda(proximaFatura.total) : moeda(0)
+                                proximaFatura
+                                  ? moeda(proximaFatura.total)
+                                  : moeda(0)
                               }
                               sublabel={
                                 proximaFatura
@@ -1079,7 +1050,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                             <MiniResumoBox
                               label="Fatura do mês atual"
                               value={
-                                faturaMesAtual ? moeda(faturaMesAtual.total) : moeda(0)
+                                faturaMesAtual
+                                  ? moeda(faturaMesAtual.total)
+                                  : moeda(0)
                               }
                               sublabel={
                                 faturaMesAtual
@@ -1091,7 +1064,10 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                         </div>
 
                         <div className="mt-4 grid gap-3 md:grid-cols-4">
-                          <StatusInfo label="Limite" value={moeda(Number(cartao.limite ?? 0))} />
+                          <StatusInfo
+                            label="Limite"
+                            value={moeda(Number(cartao.limite ?? 0))}
+                          />
                           <StatusInfo
                             label="Total lançado no cartão"
                             value={moeda(totalUsadoAtual)}
@@ -1104,7 +1080,11 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                           />
                           <StatusInfo
                             label="Status"
-                            value={estourado ? "Limite estourado" : "Dentro do limite"}
+                            value={
+                              estourado
+                                ? "Limite estourado"
+                                : "Dentro do limite"
+                            }
                             danger={estourado}
                             success={!estourado}
                           />
@@ -1112,11 +1092,11 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
 
                         <div className="mt-4 space-y-2">
                           <div className="flex items-center justify-between text-sm">
-                            <span className="text-slate-600">Uso do limite</span>
+                            <span className="text-slate-600">
+                              Uso do limite
+                            </span>
                             <span
-                              className={`font-medium ${
-                                estourado ? "text-red-600" : "text-slate-900"
-                              }`}
+                              className={`font-medium ${estourado ? "text-red-600" : "text-slate-900"}`}
                             >
                               {percentualUso.toFixed(1)}%
                             </span>
@@ -1124,10 +1104,10 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
 
                           <div className="h-3 w-full rounded-full bg-slate-200">
                             <div
-                              className={`h-3 rounded-full transition-all ${
-                                estourado ? "bg-red-500" : "bg-slate-900"
-                              }`}
-                              style={{ width: `${Math.min(percentualUso, 100)}%` }}
+                              className={`h-3 rounded-full transition-all ${estourado ? "bg-red-500" : "bg-slate-900"}`}
+                              style={{
+                                width: `${Math.min(percentualUso, 100)}%`,
+                              }}
                             />
                           </div>
                         </div>
@@ -1155,15 +1135,15 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                 mes.status === "paga"
                                   ? "text-emerald-600"
                                   : mes.status === "parcial"
-                                  ? "text-blue-600"
-                                  : "text-amber-600";
+                                    ? "text-blue-600"
+                                    : "text-amber-600";
 
                               const statusTexto =
                                 mes.status === "paga"
                                   ? "Paga"
                                   : mes.status === "parcial"
-                                  ? "Parcial"
-                                  : "Aberta";
+                                    ? "Parcial"
+                                    : "Aberta";
 
                               return (
                                 <div
@@ -1173,7 +1153,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                   <button
                                     type="button"
                                     onClick={() =>
-                                      setMesAberto(abertoMes ? null : keyMes)
+                                      setMesAberto(
+                                        abertoMes ? null : keyMes
+                                      )
                                     }
                                     className="flex w-full items-center justify-between gap-3 bg-white px-4 py-4 text-left transition hover:bg-slate-50"
                                   >
@@ -1190,7 +1172,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                       <p className="font-semibold text-slate-900">
                                         {moeda(mes.total)}
                                       </p>
-                                      <p className={`text-xs font-medium ${statusVisual}`}>
+                                      <p
+                                        className={`text-xs font-medium ${statusVisual}`}
+                                      >
                                         {statusTexto}
                                       </p>
                                     </div>
@@ -1208,9 +1192,7 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                               </p>
                                               <p className="text-xs text-slate-500">
                                                 {mes.pagamento?.data_pagamento
-                                                  ? `Pago em ${formatarDataPadraoBrasil(
-                                                      mes.pagamento.data_pagamento
-                                                    )}`
+                                                  ? `Pago em ${formatarDataPadraoBrasil(mes.pagamento.data_pagamento)}`
                                                   : "Pagamento registrado"}
                                               </p>
                                             </div>
@@ -1220,7 +1202,10 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              void desfazerPagamento(cartao.id, mes.mes);
+                                              void desfazerPagamento(
+                                                cartao.id,
+                                                mes.mes
+                                              );
                                             }}
                                             disabled={estaPagando}
                                             className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1258,7 +1243,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                             label="Pago até agora"
                                             value={moeda(mes.valorPago)}
                                             valueClassName={
-                                              mes.valorPago > 0 ? "text-blue-600" : undefined
+                                              mes.valorPago > 0
+                                                ? "text-blue-600"
+                                                : undefined
                                             }
                                           />
                                           <MiniResumoBox
@@ -1275,13 +1262,13 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                                 <CheckCircle2 className="mt-0.5 h-4 w-4 text-blue-600" />
                                                 <div>
                                                   <p className="text-sm font-medium text-slate-900">
-                                                    Pagamento parcial registrado
+                                                    Pagamento parcial
+                                                    registrado
                                                   </p>
                                                   <p className="text-xs text-slate-500">
-                                                    {mes.pagamento?.data_pagamento
-                                                      ? `Último pagamento em ${formatarDataPadraoBrasil(
-                                                          mes.pagamento.data_pagamento
-                                                        )}`
+                                                    {mes.pagamento
+                                                      ?.data_pagamento
+                                                      ? `Último pagamento em ${formatarDataPadraoBrasil(mes.pagamento.data_pagamento)}`
                                                       : "Falta quitar o restante da fatura."}
                                                   </p>
                                                 </div>
@@ -1294,8 +1281,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                                     Pagamento da fatura
                                                   </p>
                                                   <p className="text-xs text-slate-500">
-                                                    Você pode pagar o valor total ou apenas uma
-                                                    parte agora.
+                                                    Você pode pagar o valor
+                                                    total ou apenas uma parte
+                                                    agora.
                                                   </p>
                                                 </div>
                                               </>
@@ -1308,7 +1296,10 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                                 type="button"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  void desfazerPagamento(cartao.id, mes.mes);
+                                                  void desfazerPagamento(
+                                                    cartao.id,
+                                                    mes.mes
+                                                  );
                                                 }}
                                                 disabled={estaPagando}
                                                 className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1328,7 +1319,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                                   cartaoNome: cartao.nome,
                                                   mesReferencia: mes.mes,
                                                   valorTotal: mes.total,
-                                                  valorPagoAtual: mes.valorPago,
+                                                  valorPagoAtual:
+                                                    mes.valorPago,
                                                 });
                                               }}
                                               disabled={estaPagando}
@@ -1337,8 +1329,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                                               {estaPagando
                                                 ? "Processando..."
                                                 : mes.status === "parcial"
-                                                ? "Registrar novo pagamento"
-                                                : "Pagar fatura"}
+                                                  ? "Registrar novo pagamento"
+                                                  : "Pagar fatura"}
                                             </button>
                                           </div>
                                         </div>
@@ -1476,7 +1468,8 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                     Saldo inicial do cartão
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
-                    Lance valores já existentes nas próximas faturas sem cadastrar compra por compra.
+                    Lance valores já existentes nas próximas faturas sem
+                    cadastrar compra por compra.
                   </p>
                 </div>
 
@@ -1543,7 +1536,9 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                       setCartaoSaldoInicialId("");
                       setMesInicialSaldo(getMesAtual());
                       setQuantidadeMesesSaldo("1");
-                      setLinhasSaldoInicial([{ mes: getMesAtual(), valor: "" }]);
+                      setLinhasSaldoInicial([
+                        { mes: getMesAtual(), valor: "" },
+                      ]);
                     }}
                     className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
                   >
@@ -1582,7 +1577,10 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
                         </p>
                       </div>
 
-                      <FieldBlock label="Valor" htmlFor={`valor-saldo-${index}`}>
+                      <FieldBlock
+                        label="Valor"
+                        htmlFor={`valor-saldo-${index}`}
+                      >
                         <input
                           id={`valor-saldo-${index}`}
                           type="number"
@@ -1617,473 +1615,29 @@ ${error.hint ? `\nHint: ${error.hint}` : ""}`
         )}
       </PageShell>
 
-      {sheetCartaoAberto && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-[1px]"
-            onClick={fecharSheetCartao}
-          />
+      <SheetCartao
+        aberto={sheetCartaoAberto}
+        idEmEdicao={idEmEdicao}
+        nome={nome}
+        limite={limite}
+        fechamentoDia={fechamentoDia}
+        vencimentoDia={vencimentoDia}
+        onNomeChange={setNome}
+        onLimiteChange={setLimite}
+        onFechamentoDiaChange={setFechamentoDia}
+        onVencimentoDiaChange={setVencimentoDia}
+        onClose={fecharSheetCartao}
+        onSubmit={handleSalvarCartao}
+      />
 
-          <aside className="fixed right-0 top-0 z-50 flex h-screen w-full max-w-xl flex-col border-l border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-900">
-                  {idEmEdicao !== null ? "Editar cartão" : "Novo cartão"}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Cadastre o cartão com limite, fechamento e vencimento.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={fecharSheetCartao}
-                className="rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={handleSalvarCartao}
-              className="flex flex-1 flex-col overflow-y-auto"
-            >
-              <div className="space-y-6 px-6 py-6">
-                <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-6">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Dados do cartão
-                  </h3>
-
-                  <FieldBlock label="Nome do cartão" htmlFor="nome">
-                    <input
-                      id="nome"
-                      type="text"
-                      placeholder="Ex: Nubank"
-                      value={nome}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                        setNome(e.target.value)
-                      }
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
-                    />
-                  </FieldBlock>
-
-                  <FieldBlock label="Limite" htmlFor="limite">
-                    <input
-                      id="limite"
-                      type="number"
-                      step="0.01"
-                      placeholder="Ex: 1500.00"
-                      value={limite}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                        setLimite(e.target.value)
-                      }
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
-                    />
-                  </FieldBlock>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FieldBlock label="Dia de fechamento" htmlFor="fechamentoDia">
-                      <input
-                        id="fechamentoDia"
-                        type="number"
-                        min="1"
-                        max="31"
-                        placeholder="Ex: 5"
-                        value={fechamentoDia}
-                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                          setFechamentoDia(e.target.value)
-                        }
-                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
-                      />
-                    </FieldBlock>
-
-                    <FieldBlock label="Dia de vencimento" htmlFor="vencimentoDia">
-                      <input
-                        id="vencimentoDia"
-                        type="number"
-                        min="1"
-                        max="31"
-                        placeholder="Ex: 12"
-                        value={vencimentoDia}
-                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                          setVencimentoDia(e.target.value)
-                        }
-                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
-                      />
-                    </FieldBlock>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
-                    Esse cadastro define o limite do cartão e a regra base de fechamento
-                    e vencimento usada nas projeções de fatura.
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-auto flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
-                <button
-                  type="button"
-                  onClick={fecharSheetCartao}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95"
-                >
-                  {idEmEdicao !== null ? "Atualizar cartão" : "Salvar cartão"}
-                </button>
-              </div>
-            </form>
-          </aside>
-        </>
-      )}
-
-      {modalPagamento.aberto && (
-        <>
-          <div
-            className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-[1px]"
-            onClick={fecharModalPagamento}
-          />
-
-          <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
-            <div className="w-full max-w-lg rounded-[28px] border border-slate-200 bg-white shadow-2xl">
-              <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
-                <div>
-                  <h2 className="text-xl font-semibold text-slate-900">
-                    Pagamento de fatura
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {modalPagamento.cartaoNome} • {formatarMes(modalPagamento.mesReferencia)}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={fecharModalPagamento}
-                  disabled={salvandoPagamentoModal}
-                  className="rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="space-y-5 px-6 py-6">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <MiniResumoBox
-                    label="Total da fatura"
-                    value={moeda(modalPagamento.valorTotal)}
-                  />
-                  <MiniResumoBox
-                    label="Já pago"
-                    value={moeda(modalPagamento.valorPagoAtual)}
-                    valueClassName={
-                      modalPagamento.valorPagoAtual > 0 ? "text-blue-600" : undefined
-                    }
-                  />
-                  <MiniResumoBox
-                    label="Restante"
-                    value={moeda(modalPagamento.valorRestante)}
-                    valueClassName="text-amber-600"
-                  />
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                  <FieldBlock label="Valor do pagamento" htmlFor="valorPagamentoModal">
-                    <input
-                      id="valorPagamentoModal"
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      max={modalPagamento.valorRestante}
-                      placeholder="Digite o valor a pagar"
-                      value={valorPagamentoModal}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                        setValorPagamentoModal(e.target.value)
-                      }
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
-                    />
-                  </FieldBlock>
-
-                  <p className="mt-3 text-xs text-slate-500">
-                    Você pode lançar um pagamento parcial. Quando o total pago alcançar o
-                    valor da fatura, ela será marcada como quitada.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
-                <button
-                  type="button"
-                  onClick={fecharModalPagamento}
-                  disabled={salvandoPagamentoModal}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void confirmarPagamentoModal()}
-                  disabled={salvandoPagamentoModal}
-                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {salvandoPagamentoModal ? "Salvando..." : "Confirmar pagamento"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      <ModalPagamento
+        modalPagamento={modalPagamento}
+        valorPagamentoModal={valorPagamentoModal}
+        salvandoPagamentoModal={salvandoPagamentoModal}
+        onValorChange={setValorPagamentoModal}
+        onClose={fecharModalPagamento}
+        onConfirmar={() => void confirmarPagamentoModal()}
+      />
     </>
   );
-}
-
-function AbaButton({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: ReactNode;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-medium transition ${
-        active
-          ? "bg-white text-slate-900 shadow-sm"
-          : "text-slate-500 hover:text-slate-700"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-function ResumoCard({
-  title,
-  value,
-  icon,
-}: {
-  title: string;
-  value: string;
-  icon: ReactNode;
-}) {
-  return (
-    <div className="rounded-[28px] border border-slate-200 bg-linear-to-br from-slate-50 to-white p-6 shadow-sm">
-      <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
-        {icon}
-        {title}
-      </div>
-      <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function MiniResumo({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-xl font-semibold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
-function MiniResumoBox({
-  label,
-  value,
-  sublabel,
-  valueClassName,
-}: {
-  label: string;
-  value: string;
-  sublabel?: string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p
-        className={`mt-1 text-lg font-bold text-slate-900 ${valueClassName ?? ""}`}
-      >
-        {value}
-      </p>
-      {sublabel ? <p className="mt-1 text-xs text-slate-500">{sublabel}</p> : null}
-    </div>
-  );
-}
-
-function StatusInfo({
-  label,
-  value,
-  danger,
-  success,
-}: {
-  label: string;
-  value: string;
-  danger?: boolean;
-  success?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-2xl border p-3 ${
-        danger
-          ? "border-red-200 bg-red-50"
-          : success
-          ? "border-emerald-200 bg-emerald-50"
-          : "border-slate-200"
-      }`}
-    >
-      <p className="text-xs text-slate-500">{label}</p>
-      <p
-        className={`mt-1 font-semibold ${
-          danger
-            ? "text-red-600"
-            : success
-            ? "text-emerald-700"
-            : "text-slate-900"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function EmptyCard({ text }: { text: string }) {
-  return (
-    <div className="rounded-[30px] border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
-      {text}
-    </div>
-  );
-}
-
-function FieldBlock({
-  label,
-  htmlFor,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-2">
-      <label htmlFor={htmlFor} className="text-sm font-medium text-slate-700">
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function moeda(valor: number) {
-  return valor.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
-
-function getMesAtual() {
-  const hoje = new Date();
-  const ano = hoje.getFullYear();
-  const mes = String(hoje.getMonth() + 1).padStart(2, "0");
-  return `${ano}-${mes}`;
-}
-
-function adicionarMeses(mesBase: string, quantidade: number) {
-  const [ano, mes] = mesBase.split("-").map(Number);
-  const data = new Date(ano, mes - 1 + quantidade, 1);
-  const novoAno = data.getFullYear();
-  const novoMes = String(data.getMonth() + 1).padStart(2, "0");
-  return `${novoAno}-${novoMes}`;
-}
-
-function formatarMes(mesAno: string) {
-  const [ano, mes] = mesAno.split("-");
-  const nomes = [
-    "Janeiro",
-    "Fevereiro",
-    "Março",
-    "Abril",
-    "Maio",
-    "Junho",
-    "Julho",
-    "Agosto",
-    "Setembro",
-    "Outubro",
-    "Novembro",
-    "Dezembro",
-  ];
-
-  return `${nomes[Number(mes) - 1]} de ${ano}`;
-}
-
-function formatarVencimento(mesAno: string, vencimentoDia: number) {
-  const [ano, mes] = mesAno.split("-");
-  const dia = String(vencimentoDia).padStart(2, "0");
-  return `${dia}/${mes}/${ano}`;
-}
-
-function getDataHoje() {
-  const hoje = new Date();
-  const ano = hoje.getFullYear();
-  const mes = String(hoje.getMonth() + 1).padStart(2, "0");
-  const dia = String(hoje.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-}
-
-function getProximaCompetencia(vencimentoDia: number) {
-  const hoje = new Date();
-  const diaAtual = hoje.getDate();
-  const ano = hoje.getFullYear();
-  const mes = hoje.getMonth();
-
-  const dataCompetencia =
-    diaAtual > vencimentoDia
-      ? new Date(ano, mes + 1, 1)
-      : new Date(ano, mes, 1);
-
-  const competenciaAno = dataCompetencia.getFullYear();
-  const competenciaMes = String(dataCompetencia.getMonth() + 1).padStart(2, "0");
-
-  return `${competenciaAno}-${competenciaMes}`;
-}
-
-function obterStatusFatura({
-  total,
-  valorPago,
-  statusBanco,
-}: {
-  total: number;
-  valorPago: number;
-  statusBanco?: string | null;
-}) {
-  if (valorPago >= total && total > 0) return "paga";
-  if (valorPago > 0 && valorPago < total) return "parcial";
-
-  if (statusBanco === "paga") return "paga";
-  if (statusBanco === "parcial") return "parcial";
-
-  return "aberta";
-}
-
-function formatarDataPadraoBrasil(data: string) {
-  if (!data) return "";
-
-  const partes = data.split("-");
-  if (partes.length !== 3) return data;
-
-  const [ano, mes, dia] = partes;
-  return `${dia}/${mes}/${ano}`;
 }

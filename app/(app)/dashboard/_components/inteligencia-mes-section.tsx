@@ -2,24 +2,8 @@
 
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
-
-type InsightsItem = {
-  tipo: "alerta" | "positivo" | "neutro";
-  texto: string;
-};
-
-type RecomendacaoAcao = {
-  tipo: "guardar_meta";
-  valor: number;
-  metaId: string;
-  metaNome: string;
-};
-
-type RecomendacaoItem = {
-  tipo: "acao" | "alerta";
-  texto: string;
-  acao?: RecomendacaoAcao;
-};
+import { InsightsPanel } from "./insights-panel";
+import { RecomendacoesPanel } from "./recomendacoes-panel";
 
 type ContaFixaDashboard = {
   id: number;
@@ -45,14 +29,26 @@ type AlertasContas = {
   total: number;
 };
 
+type RecomendacaoAcao = {
+  tipo: "guardar_meta";
+  valor: number;
+  metaId: string;
+  metaNome: string;
+};
+
+type RecomendacaoItem = {
+  tipo: "acao" | "alerta";
+  texto: string;
+  acao?: RecomendacaoAcao;
+};
+
 type Previsao = {
   saldoFinalPrevisto: number;
   gastoDiarioAtual: number;
 };
 
-
 type Props = {
-  insights: InsightsItem[];
+  insights: { tipo: "alerta" | "positivo" | "neutro"; texto: string }[];
   previsao: Previsao;
   recomendacoes: RecomendacaoItem[];
   sugestoesReceita: string[];
@@ -86,87 +82,16 @@ export function InteligenciaMesSection({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="space-y-3">
-          <h3 className="text-base font-semibold text-zinc-900">Situação do mês</h3>
-
-          {insights.map((item, i) => {
-            const estilo =
-              item.tipo === "alerta"
-                ? "border-red-200 bg-red-50 text-red-700"
-                : item.tipo === "positivo"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-zinc-200 bg-zinc-50 text-zinc-700";
-
-            return (
-              <div
-                key={`insight-${i}`}
-                className={`rounded-2xl border px-4 py-3 text-sm font-medium ${estilo}`}
-              >
-                {item.texto}
-              </div>
-            );
-          })}
-
-          <div
-            className={`rounded-2xl border px-4 py-3 text-sm font-medium ${
-              previsao.saldoFinalPrevisto < 0
-                ? "border-red-200 bg-red-50 text-red-700"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700"
-            }`}
-          >
-            {previsao.saldoFinalPrevisto < 0
-              ? `Se continuar assim, você fechará o mês com ${formatarMoeda(
-                  previsao.saldoFinalPrevisto
-                )}`
-              : `Você terminará o mês com aproximadamente ${formatarMoeda(
-                  previsao.saldoFinalPrevisto
-                )}`}
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-            Gasto médio diário: <strong>{formatarMoeda(previsao.gastoDiarioAtual)}</strong>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <h3 className="text-base font-semibold text-zinc-900">Próximas ações</h3>
-
-          {recomendacoes.map((item, i) => {
-            const estilo =
-              item.tipo === "alerta"
-                ? "border-red-200 bg-red-50 text-red-700"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700";
-
-            return (
-              <div
-                key={`acao-${i}`}
-                className={`rounded-2xl border px-4 py-3 text-sm font-medium ${estilo}`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span>{item.texto}</span>
-                  {item.acao ? (
-                    <button
-                      type="button"
-                      onClick={() => executarAcao(item.acao!)}
-                      className="shrink-0 rounded-xl bg-black px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
-                    >
-                      Guardar agora
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-
-          {sugestoesReceita.slice(0, 2).map((texto, index) => (
-            <div
-              key={`sugestao-${index}`}
-              className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-medium text-violet-700"
-            >
-              {texto}
-            </div>
-          ))}
-        </div>
+        <InsightsPanel
+          insights={insights}
+          previsao={previsao}
+          formatarMoeda={formatarMoeda}
+        />
+        <RecomendacoesPanel
+          recomendacoes={recomendacoes}
+          sugestoesReceita={sugestoesReceita}
+          executarAcao={executarAcao}
+        />
       </div>
 
       <div className="space-y-3">

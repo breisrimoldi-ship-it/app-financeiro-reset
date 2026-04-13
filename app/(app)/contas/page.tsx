@@ -3,479 +3,38 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlarmClock,
-  Calendar,
   CheckCircle2,
   CircleDollarSign,
   CreditCard,
-  Pencil,
   Plus,
-  Power,
   Search,
   SlidersHorizontal,
-  Tag,
-  Trash2,
   Wallet,
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { getHojeISO, getMesAtualISO } from "@/lib/finance/date";
-import { formatarMoedaBRL } from "@/lib/finance/format"
 
-type TipoRecorrencia = "indeterminada" | "temporaria";
-type AbaFiltro = "todas" | "ativas" | "inativas";
-type PrazoModo = "quantidade" | "fim";
-
-type ContaFixa = {
-  id: number;
-  descricao: string;
-  valor: number;
-  dia_vencimento: number;
-  categoria: string | null;
-  observacoes: string | null;
-  ativa: boolean;
-  user_id: string | null;
-  tipo_recorrencia: TipoRecorrencia;
-  inicio_cobranca: string | null;
-  fim_cobranca: string | null;
-  quantidade_meses: number | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type PagamentoConta = {
-  id: number;
-  origem_tipo: string;
-  origem_id: number;
-  mes_referencia: string;
-  valor_pago: number;
-  data_pagamento: string | null;
-  status: string;
-  observacoes?: string | null;
-  user_id?: string | null;
-  created_at?: string;
-  updated_at?: string;
-};
-
-function getMesAtual() {
-  return getMesAtualISO()
-}
-
-function getDataHoje() {
-  return getHojeISO();
-}
-
-const formatarMoeda = formatarMoedaBRL;
-
-function formatarMesAno(anoMes: string | null) {
-  if (!anoMes) return "-";
-
-  const [ano, mes] = anoMes.split("-");
-  const nomes = [
-    "Jan",
-    "Fev",
-    "Mar",
-    "Abr",
-    "Mai",
-    "Jun",
-    "Jul",
-    "Ago",
-    "Set",
-    "Out",
-    "Nov",
-    "Dez",
-  ];
-
-  return `${nomes[Number(mes) - 1]} ${ano}`;
-}
-
-function formatarData(data: string | null) {
-  if (!data) return "-";
-  const [ano, mes, dia] = data.split("-");
-  return `${dia}/${mes}/${ano}`;
-}
-
-function adicionarMeses(anoMes: string, quantidade: number) {
-  const [ano, mes] = anoMes.split("-").map(Number);
-  const data = new Date(ano, mes - 1 + quantidade, 1);
-
-  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function diferencaMeses(inicio: string, fim: string) {
-  const [anoInicio, mesInicio] = inicio.split("-").map(Number);
-  const [anoFim, mesFim] = fim.split("-").map(Number);
-
-  return (anoFim - anoInicio) * 12 + (mesFim - mesInicio);
-}
-
-function getUltimoMesConta(conta: ContaFixa) {
-  if (!conta.inicio_cobranca) return null;
-
-  if (conta.tipo_recorrencia === "indeterminada") {
-    return null;
-  }
-
-  if (conta.fim_cobranca) {
-    return conta.fim_cobranca;
-  }
-
-  if (conta.quantidade_meses && conta.quantidade_meses > 0) {
-    return adicionarMeses(conta.inicio_cobranca, conta.quantidade_meses - 1);
-  }
-
-  return null;
-}
-
-function contaExisteNoMes(conta: ContaFixa, mesReferencia: string) {
-  if (!conta.inicio_cobranca) return false;
-
-  if (conta.inicio_cobranca > mesReferencia) {
-    return false;
-  }
-
-  if (conta.tipo_recorrencia === "indeterminada") {
-    return true;
-  }
-
-  const ultimoMes = getUltimoMesConta(conta);
-
-  if (!ultimoMes) return false;
-
-  return mesReferencia >= conta.inicio_cobranca && mesReferencia <= ultimoMes;
-}
-
-function contaAtivaNoMes(conta: ContaFixa, mesReferencia: string) {
-  return conta.ativa && contaExisteNoMes(conta, mesReferencia);
-}
-
-function getMesesRestantes(conta: ContaFixa, mesReferencia: string) {
-  if (!conta.ativa) return 0;
-  if (conta.tipo_recorrencia !== "temporaria") return 0;
-  if (!conta.inicio_cobranca) return 0;
-
-  const ultimoMes = getUltimoMesConta(conta);
-  if (!ultimoMes) return 0;
-
-  if (mesReferencia > ultimoMes) {
-    return 0;
-  }
-
-  const mesInicialConsiderado =
-    mesReferencia < conta.inicio_cobranca ? conta.inicio_cobranca : mesReferencia;
-
-  return diferencaMeses(mesInicialConsiderado, ultimoMes) + 1;
-}
-
-function pagamentoEhAdiantado(
-  pagamento: PagamentoConta | undefined,
-  mesReferencia: string
-) {
-  if (!pagamento?.data_pagamento) return false;
-  const mesPagamento = pagamento.data_pagamento.slice(0, 7);
-  return mesPagamento < mesReferencia;
-}
-
-function normalizarCategoria(valor: string) {
-  const texto = valor.replace(/\s+/g, " ").trim().toLowerCase();
-  if (!texto) return "";
-
-  return texto
-    .split(" ")
-    .map((parte) => parte.charAt(0).toUpperCase() + parte.slice(1))
-    .join(" ");
-}
-
-function ordenarPorVencimento(a: ContaFixa, b: ContaFixa) {
-  if (a.ativa !== b.ativa) return a.ativa ? -1 : 1;
-  if (a.dia_vencimento !== b.dia_vencimento) {
-    return a.dia_vencimento - b.dia_vencimento;
-  }
-  return a.descricao.localeCompare(b.descricao);
-}
-
-function cls(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
-type ResumoCardProps = {
-  titulo: string;
-  valor: string | number;
-  descricao: string;
-  icon: React.ReactNode;
-  destaque?: "default" | "blue" | "amber" | "sky";
-};
-
-function ResumoCard({
-  titulo,
-  valor,
-  descricao,
-  icon,
-  destaque = "default",
-}: ResumoCardProps) {
-  const estilos =
-    destaque === "blue"
-      ? "border-blue-100 bg-gradient-to-br from-blue-50 to-white"
-      : destaque === "amber"
-      ? "border-amber-100 bg-gradient-to-br from-amber-50 to-white"
-      : destaque === "sky"
-      ? "border-sky-100 bg-gradient-to-br from-sky-50 to-white"
-      : "border-slate-200 bg-gradient-to-br from-slate-50 to-white";
-
-  const valorCor =
-    destaque === "blue"
-      ? "text-blue-700"
-      : destaque === "amber"
-      ? "text-amber-600"
-      : destaque === "sky"
-      ? "text-sky-600"
-      : "text-slate-900";
-
-  return (
-    <div className={cls("rounded-[28px] border p-5 shadow-sm", estilos)}>
-      <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
-        {icon}
-        <span>{titulo}</span>
-      </div>
-      <p className={cls("mt-4 text-3xl font-semibold tracking-tight", valorCor)}>
-        {valor}
-      </p>
-      <p className="mt-2 text-xs text-slate-400">{descricao}</p>
-    </div>
-  );
-}
-
-type ContaCardProps = {
-  conta: ContaFixa;
-  mesSelecionado: string;
-  pagamentoMes?: PagamentoConta;
-  estaPagando: boolean;
-  onEditar: () => void;
-  onPagar: () => void;
-  onDesfazerPagamento: () => void;
-  onAlternarStatus: () => void;
-  onExcluir: () => void;
-};
-
-function ContaCard({
-  conta,
-  mesSelecionado,
-  pagamentoMes,
-  estaPagando,
-  onEditar,
-  onPagar,
-  onDesfazerPagamento,
-  onAlternarStatus,
-  onExcluir,
-}: ContaCardProps) {
-  const entraNoMes = contaAtivaNoMes(conta, mesSelecionado);
-  const existeNoMes = contaExisteNoMes(conta, mesSelecionado);
-  const pago = !!pagamentoMes && pagamentoMes.status === "paga";
-  const adiantado = pagamentoEhAdiantado(pagamentoMes, mesSelecionado);
-  const mesesRestantes = getMesesRestantes(conta, mesSelecionado);
-  const totalRestante =
-    conta.tipo_recorrencia === "temporaria"
-      ? Number(conta.valor) * mesesRestantes
-      : 0;
-
-  return (
-    <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <div
-              className={cls(
-                "flex h-11 w-11 items-center justify-center rounded-2xl",
-                conta.ativa
-                  ? "bg-blue-50 text-blue-600"
-                  : "bg-slate-100 text-slate-500"
-              )}
-            >
-              <CreditCard className="h-5 w-5" />
-            </div>
-
-            <div className="min-w-0">
-              <p className="truncate text-base font-semibold text-slate-900">
-                {conta.descricao}
-              </p>
-              <div className="mt-1 flex flex-wrap gap-2">
-                <span
-                  className={cls(
-                    "rounded-full px-2.5 py-1 text-[11px] font-medium",
-                    conta.ativa
-                      ? "bg-emerald-50 text-emerald-700"
-                      : "bg-slate-100 text-slate-700"
-                  )}
-                >
-                  {conta.ativa ? "Ativa" : "Inativa"}
-                </span>
-
-                <span
-                  className={cls(
-                    "rounded-full px-2.5 py-1 text-[11px] font-medium",
-                    conta.tipo_recorrencia === "temporaria"
-                      ? "bg-amber-100 text-amber-800"
-                      : "bg-slate-100 text-slate-700"
-                  )}
-                >
-                  {conta.tipo_recorrencia === "temporaria"
-                    ? "Temporária"
-                    : "Recorrente"}
-                </span>
-
-                {pago ? (
-                  <span
-                    className={cls(
-                      "rounded-full px-2.5 py-1 text-[11px] font-medium",
-                      adiantado
-                        ? "bg-indigo-100 text-indigo-700"
-                        : "bg-emerald-100 text-emerald-700"
-                    )}
-                  >
-                    {adiantado ? "Paga adiantada" : "Paga"}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-500">
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-              <Calendar className="h-3.5 w-3.5" />
-              Vence dia {conta.dia_vencimento}
-            </span>
-
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-              <AlarmClock className="h-3.5 w-3.5" />
-              Início {formatarMesAno(conta.inicio_cobranca)}
-            </span>
-
-            {conta.categoria ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                <Tag className="h-3.5 w-3.5" />
-                {conta.categoria}
-              </span>
-            ) : null}
-
-            <span
-              className={cls(
-                "rounded-full px-2.5 py-1 text-[11px] font-medium",
-                existeNoMes
-                  ? "bg-blue-100 text-blue-700"
-                  : "bg-slate-100 text-slate-500"
-              )}
-            >
-              {existeNoMes
-                ? `Existe em ${formatarMesAno(mesSelecionado)}`
-                : `Fora de ${formatarMesAno(mesSelecionado)}`}
-            </span>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-            {conta.tipo_recorrencia === "temporaria" ? (
-              <>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                  Prazo:{" "}
-                  {conta.quantidade_meses
-                    ? `${conta.quantidade_meses} mês(es)`
-                    : `até ${formatarMesAno(conta.fim_cobranca)}`}
-                </span>
-
-                <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                  Restante: {formatarMoeda(totalRestante)}
-                </span>
-
-                <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                  {mesesRestantes} mês(es) restantes
-                </span>
-              </>
-            ) : (
-              <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                Cobrança contínua
-              </span>
-            )}
-
-            {pago && pagamentoMes?.data_pagamento ? (
-              <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                Pago em {formatarData(pagamentoMes.data_pagamento)}
-              </span>
-            ) : null}
-          </div>
-
-          {conta.observacoes ? (
-            <p className="mt-3 text-sm leading-6 text-slate-500">
-              {conta.observacoes}
-            </p>
-          ) : null}
-
-          {entraNoMes ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {pago ? (
-                <button
-                  type="button"
-                  onClick={onDesfazerPagamento}
-                  disabled={estaPagando}
-                  className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {estaPagando ? "Desfazendo..." : "Desfazer pagamento"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onPagar}
-                  disabled={estaPagando}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  {estaPagando ? "Pagando..." : "Pagar"}
-                </button>
-              )}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
-          <div className="text-left lg:text-right">
-            <p className="text-xl font-semibold text-slate-900">
-              {formatarMoeda(Number(conta.valor))}
-            </p>
-            <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-              conta
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onEditar}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
-            >
-              <Pencil className="h-4 w-4" />
-              Editar
-            </button>
-
-            <button
-              type="button"
-              onClick={onAlternarStatus}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
-            >
-              <Power className="h-4 w-4" />
-              {conta.ativa ? "Inativar" : "Ativar"}
-            </button>
-
-            <button
-              type="button"
-              onClick={onExcluir}
-              className="inline-flex items-center gap-2 rounded-2xl border border-red-200 px-3 py-2 text-sm text-red-600 transition hover:bg-red-50"
-            >
-              <Trash2 className="h-4 w-4" />
-              Excluir
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+import type {
+  TipoRecorrencia,
+  AbaFiltro,
+  PrazoModo,
+  ContaFixa,
+  PagamentoConta,
+} from "./_lib/types";
+import {
+  cls,
+  contaAtivaNoMes,
+  contaExisteNoMes,
+  formatarMesAno,
+  formatarMoeda,
+  getDataHoje,
+  getMesAtual,
+  getMesesRestantes,
+  normalizarCategoria,
+  ordenarPorVencimento,
+} from "./_lib/utils";
+import { ContaCard } from "./_components/conta-card";
+import { ResumoCard } from "./_components/resumo-card";
 
 export default function ContasPage() {
     const supabase = createClient();
@@ -699,7 +258,6 @@ useEffect(() => {
         .eq("id", editandoId);
 
       if (error) {
-        console.error("Erro ao atualizar conta:", error);
         setErro(`Erro ao atualizar conta: ${error.message}`);
         setSalvando(false);
         return;
@@ -708,7 +266,6 @@ useEffect(() => {
       const { error } = await supabase.from("contas_fixas").insert(payload);
 
       if (error) {
-        console.error("Erro ao cadastrar conta:", error);
         setErro(`Erro ao cadastrar conta: ${error.message}`);
         setSalvando(false);
         return;
@@ -728,7 +285,6 @@ useEffect(() => {
       .eq("id", conta.id);
 
     if (error) {
-      console.error("Erro ao alterar status:", error);
       alert(`Erro ao alterar status: ${error.message}`);
       return;
     }
@@ -749,7 +305,6 @@ useEffect(() => {
       .eq("id", conta.id);
 
     if (error) {
-      console.error("Erro ao excluir conta:", error);
       alert(`Erro ao excluir conta: ${error.message}`);
       return;
     }
@@ -788,7 +343,6 @@ useEffect(() => {
           .single();
 
         if (error) {
-          console.error("Erro ao atualizar pagamento:", error);
           alert(`Erro ao pagar conta: ${error.message}`);
           return;
         }
@@ -813,7 +367,6 @@ useEffect(() => {
           .single();
 
         if (error) {
-          console.error("Erro ao registrar pagamento:", error);
           alert(`Erro ao pagar conta: ${error.message}`);
           return;
         }
@@ -855,7 +408,6 @@ useEffect(() => {
         .single();
 
       if (error) {
-        console.error("Erro ao desfazer pagamento:", error);
         alert(`Erro ao desfazer pagamento: ${error.message}`);
         return;
       }
