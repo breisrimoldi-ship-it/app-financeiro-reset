@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Search, SlidersHorizontal, Tag } from "lucide-react";
+import { ArrowRightLeft, Plus, Search, SlidersHorizontal, Tag } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { SectionCard } from "@/components/ui/section-card";
 import { createClient } from "@/lib/supabase/client";
@@ -42,6 +42,7 @@ import { FiltroChip } from "./_components/filtro-chip";
 import { ModalCategorias } from "./_components/modal-categorias";
 import { ModalDetalhes } from "./_components/modal-detalhes";
 import { ModalMovimentacao } from "./_components/modal-movimentacao";
+import { ModalTransferencia } from "./_components/modal-transferencia";
 import { ResumoCard } from "./_components/resumo-card";
 
 const supabase = createClient();
@@ -82,6 +83,10 @@ export default function MovimentacoesPage() {
   const [editingCategoriaNome, setEditingCategoriaNome] = useState("");
 
   const [formData, setFormData] = useState(getInitialFormData());
+  const [transferenciaOpen, setTransferenciaOpen] = useState(false);
+  const [contasBancarias, setContasBancarias] = useState<
+    { id: string; nome: string; tipo: string }[]
+  >([]);
 
   const categoriasAtuais =
     formType === "entrada" ? categoriasEntrada : categoriasDespesa;
@@ -260,6 +265,16 @@ export default function MovimentacoesPage() {
     );
   }, []);
 
+  const carregarContasBancarias = useCallback(async () => {
+    const { data } = await supabase
+      .from("contas_bancarias")
+      .select("id, nome, tipo")
+      .eq("ativo", true)
+      .order("nome", { ascending: true });
+
+    setContasBancarias((data ?? []) as { id: string; nome: string; tipo: string }[]);
+  }, []);
+
   useEffect(() => {
     async function init() {
       setLoading(true);
@@ -267,12 +282,13 @@ export default function MovimentacoesPage() {
         carregarMovimentacoes(),
         carregarCartoes(),
         carregarCategorias(),
+        carregarContasBancarias(),
       ]);
       setLoading(false);
     }
 
     void init();
-  }, [carregarCategorias, carregarMovimentacoes, carregarCartoes]);
+  }, [carregarCategorias, carregarMovimentacoes, carregarCartoes, carregarContasBancarias]);
 
   useEffect(() => {
     const abrir = searchParams.get("abrir");
@@ -501,6 +517,35 @@ export default function MovimentacoesPage() {
 
     await carregarMovimentacoes();
     setSelectedItem(null);
+  }
+
+  async function handleSaveTransferencia(data: {
+    contaOrigemId: string;
+    contaDestinoId: string;
+    valor: number;
+    data: string;
+    descricao: string;
+  }) {
+    const { error } = await supabase.from("movimentacoes").insert({
+      tipo: "transferencia",
+      descricao: data.descricao,
+      categoria: "transferencia_entre_contas",
+      valor: data.valor,
+      data: data.data,
+      tipo_pagamento: null,
+      cartao_id: null,
+      parcelas: null,
+      primeira_cobranca: null,
+      conta_id: data.contaOrigemId,
+      conta_destino_id: data.contaDestinoId,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    setTransferenciaOpen(false);
+    await carregarMovimentacoes();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -810,6 +855,15 @@ export default function MovimentacoesPage() {
             >
               <Plus className="mr-2 h-4 w-4" />
               Nova despesa
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTransferenciaOpen(true)}
+              className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              <ArrowRightLeft className="mr-2 h-4 w-4" />
+              Transferência
             </button>
 
             <button
@@ -1168,6 +1222,14 @@ export default function MovimentacoesPage() {
             setSelectedItem(null);
             void handleDelete(id);
           }}
+        />
+      )}
+
+      {transferenciaOpen && (
+        <ModalTransferencia
+          contas={contasBancarias}
+          onClose={() => setTransferenciaOpen(false)}
+          onSave={handleSaveTransferencia}
         />
       )}
     </>
