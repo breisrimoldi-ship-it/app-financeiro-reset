@@ -1,5 +1,10 @@
+"use client";
+
+import { useState } from "react";
 import type { SerieMensal } from "../_lib/types";
 import { formatMoney, formatCompetenciaLabel } from "../_lib/utils";
+
+const MESES_INICIAIS = 3;
 
 export function HistoricoSection({
   serieMensal,
@@ -8,6 +13,8 @@ export function HistoricoSection({
   serieMensal: SerieMensal[];
   serieComDados: SerieMensal[];
 }) {
+  const [expandido, setExpandido] = useState(false);
+
   const melhorMes =
     serieComDados.length > 0
       ? [...serieComDados].sort((a, b) => b.lucroLiquido - a.lucroLiquido)[0]
@@ -61,12 +68,19 @@ export function HistoricoSection({
     }
   }
 
+  const mesesParaExibir = [...serieComDados].reverse();
+  const totalMeses = mesesParaExibir.length;
+  const podeExpandir = totalMeses > MESES_INICIAIS;
+  const mesesVisiveis = expandido
+    ? mesesParaExibir
+    : mesesParaExibir.slice(0, MESES_INICIAIS);
+
   return (
     <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
       <div className="mb-5">
-        <h2 className="text-lg font-semibold text-zinc-900">Fase 6 · Histórico e insights</h2>
+        <h2 className="text-lg font-semibold text-zinc-900">Histórico e insights</h2>
         <p className="text-sm text-zinc-500">
-          Visão dos últimos 12 meses da renda variável com tendências e alertas.
+          Visão dos meses recentes da renda variável com tendências e alertas.
         </p>
       </div>
 
@@ -95,26 +109,58 @@ export function HistoricoSection({
         </div>
       </div>
 
-      <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
-        <div className="grid grid-cols-5 bg-zinc-50 px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
-          <span>Mês</span>
-          <span className="text-right">Receitas</span>
-          <span className="text-right">Custos</span>
-          <span className="text-right">Transferências</span>
-          <span className="text-right">Lucro líquido</span>
+      {mesesVisiveis.length === 0 ? (
+        <div className="mt-5 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-6 py-10 text-center">
+          <p className="text-sm font-medium text-zinc-900">
+            Sem histórico disponível ainda.
+          </p>
+          <p className="mt-1 text-sm text-zinc-500">
+            Faça lançamentos para começar a ver a evolução por mês.
+          </p>
         </div>
-        <div className="divide-y divide-zinc-200 text-sm">
-          {serieMensal.map((m) => (
-            <div key={m.mes} className="grid grid-cols-5 px-4 py-3">
-              <span className="text-zinc-700">{formatCompetenciaLabel(m.mes)}</span>
-              <span className="text-right text-zinc-700">R$ {formatMoney(m.receitas + m.aportes)}</span>
-              <span className="text-right text-zinc-700">R$ {formatMoney(m.custos)}</span>
-              <span className="text-right text-zinc-700">R$ {formatMoney(m.transferencias)}</span>
-              <span className="text-right font-medium text-zinc-900">R$ {formatMoney(m.lucroLiquido)}</span>
+      ) : (
+        <>
+          <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
+            <div className="grid grid-cols-6 bg-zinc-50 px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <span>Mês</span>
+              <span className="text-right">Receitas</span>
+              <span className="text-right">Custos</span>
+              <span className="text-right">Lucro líquido</span>
+              <span className="text-right">Transferências</span>
+              <span className="text-right">Saldo carteira</span>
             </div>
-          ))}
-        </div>
-      </div>
+            <div className="divide-y divide-zinc-200 text-sm">
+              {mesesVisiveis.map((m) => {
+                const saldoCarteira = m.lucroLiquido - m.transferencias;
+                return (
+                  <div key={m.mes} className="grid grid-cols-6 px-4 py-3">
+                    <span className="text-zinc-700">{formatCompetenciaLabel(m.mes)}</span>
+                    <span className="text-right text-zinc-700">R$ {formatMoney(m.receitas + m.aportes)}</span>
+                    <span className="text-right text-zinc-700">R$ {formatMoney(m.custos)}</span>
+                    <span className="text-right font-medium text-zinc-900">R$ {formatMoney(m.lucroLiquido)}</span>
+                    <span className="text-right text-zinc-700">R$ {formatMoney(m.transferencias)}</span>
+                    <span className="text-right font-medium text-zinc-900">R$ {formatMoney(saldoCarteira)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {podeExpandir ? (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setExpandido((prev) => !prev)}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+              >
+                {expandido
+                  ? "Mostrar menos"
+                  : `Mostrar mais (${totalMeses - MESES_INICIAIS})`}
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
 
       <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
         <p className="text-sm font-medium text-zinc-900">Alertas inteligentes</p>

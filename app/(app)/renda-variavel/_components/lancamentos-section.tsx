@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { TIPO_RV_LABEL, type TipoRvLancamento } from "../_lib/tipos";
 import type { FiltroTipo } from "../_lib/types";
 import { formatMoney, formatDate } from "../_lib/utils";
@@ -61,13 +61,6 @@ export function LancamentosSection({
             </button>
           </form>
 
-          <Link
-            href="/renda-variavel/novo"
-            className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
-          >
-            <Plus className="h-4 w-4" />
-            Novo
-          </Link>
         </div>
       </div>
 
@@ -77,17 +70,9 @@ export function LancamentosSection({
             Você ainda não tem lançamentos cadastrados.
           </p>
           <p className="mt-1 text-sm text-zinc-500">
-            Comece registrando seus trabalhos, vendas, pedidos ou serviços
-            para acompanhar quanto realmente sobra.
+            Use os botões +Receita, +Custo ou +Aporte no topo da página para
+            registrar seus primeiros lançamentos.
           </p>
-
-          <Link
-            href="/renda-variavel/novo"
-            className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-800"
-          >
-            <Plus className="h-4 w-4" />
-            Fazer primeiro lançamento
-          </Link>
         </div>
       ) : (
         <>

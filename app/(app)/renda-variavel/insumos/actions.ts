@@ -67,7 +67,7 @@ export async function salvarInsumo(input: SaveInsumoInput) {
   }
 
   revalidatePath("/renda-variavel/insumos");
-  revalidatePath("/renda-variavel/novo");
+  revalidatePath("/renda-variavel");
 }
 
 export async function excluirInsumo(id: string) {
@@ -92,5 +92,5 @@ export async function excluirInsumo(id: string) {
   }
 
   revalidatePath("/renda-variavel/insumos");
-  revalidatePath("/renda-variavel/novo");
+  revalidatePath("/renda-variavel");
 }

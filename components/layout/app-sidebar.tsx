@@ -16,7 +16,6 @@ import {
   BarChart3,
   ArrowRightLeft,
   Package,
-  PlusCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -36,11 +35,11 @@ const itensPrincipais = [
 
 const itensRendaVariavel = [
   { href: "/renda-variavel", label: "Resumo", icon: BarChart3 },
-  { href: "/renda-variavel/novo", label: "Lançamentos",  icon: PlusCircle,},
+  { href: "/renda-variavel/contas", label: "Contas", icon: Wallet },
   { href: "/renda-variavel/transferir", label: "Transferências", icon: ArrowRightLeft,},
   { href: "/renda-variavel/categorias", label: "Categorias", icon: FileText },
   { href: "/renda-variavel/insumos", label: "Insumos", icon: Package },
-  
+
 ];
 
 export function AppSidebar({

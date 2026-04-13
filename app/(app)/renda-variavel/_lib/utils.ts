@@ -75,6 +75,52 @@ export function getUltimosMeses(referencia: string, quantidade: number) {
   return meses;
 }
 
+export function getHoje() {
+  const hoje = new Date();
+  const ano = hoje.getFullYear();
+  const mes = String(hoje.getMonth() + 1).padStart(2, "0");
+  const dia = String(hoje.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+export function getDatesInRange(start: string, end: string) {
+  if (!start || !end) return [];
+
+  const startDate = new Date(`${start}T12:00:00`);
+  const endDate = new Date(`${end}T12:00:00`);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return [];
+  }
+
+  if (startDate > endDate) return [];
+
+  const dates: string[] = [];
+  const current = new Date(startDate);
+
+  while (current <= endDate) {
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, "0");
+    const day = String(current.getDate()).padStart(2, "0");
+    dates.push(`${year}-${month}-${day}`);
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+}
+
+export function distributeAmount(total: number, count: number) {
+  if (count <= 0) return [];
+  const totalCents = Math.round(total * 100);
+  const base = Math.floor(totalCents / count);
+  const remainder = totalCents - base * count;
+
+  return Array.from({ length: count }, (_, index) => {
+    const cents = base + (index === count - 1 ? remainder : 0);
+    return cents / 100;
+  });
+}
+
 export function getRangeFromMeses(meses: string[]) {
   const primeiro = meses[0];
   const ultimo = meses[meses.length - 1];

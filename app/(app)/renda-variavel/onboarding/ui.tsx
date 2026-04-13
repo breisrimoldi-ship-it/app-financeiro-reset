@@ -67,7 +67,7 @@ export default function OnboardingClient() {
   }
 
   function handleIrParaModulo() {
-    router.push("/renda-variavel/novo");
+    router.push("/renda-variavel");
   }
 
   return (

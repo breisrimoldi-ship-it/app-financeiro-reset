@@ -21,13 +21,13 @@ import {
   getUltimosMeses,
   getRangeFromMeses,
 } from "./_lib/utils";
+import { HeaderActions } from "./_components/header-actions";
 import { HistoricoSection } from "./_components/historico-section";
 import { ResumoCards } from "./_components/resumo-cards";
 import { LancamentosSection } from "./_components/lancamentos-section";
 import {
   ArrowRightLeft,
   AlertTriangle,
-  Plus,
   Settings2,
   Sparkles,
   Clock3,
@@ -144,6 +144,24 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
     throw new Error(erroRecentes.message);
   }
 
+  const { data: perfisAtivos, error: erroPerfis } = await supabase
+    .from("rv_perfis")
+    .select("id, nome")
+    .eq("user_id", user.id)
+    .eq("ativo", true)
+    .order("nome", { ascending: true });
+
+  if (erroPerfis) {
+    throw new Error(erroPerfis.message);
+  }
+
+  const { data: contasAtivas } = await supabase
+    .from("rv_contas")
+    .select("id, nome")
+    .eq("user_id", user.id)
+    .eq("ativo", true)
+    .order("nome", { ascending: true });
+
   const listaMes = (lancamentosMes ?? []) as LancamentoRow[];
   const listaMesAnterior = (lancamentosMesAnterior ?? []) as Pick<
     LancamentoRow,
@@ -208,17 +226,13 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
     else if (tipo === "taxa_financeira" || tipo === "despesa_operacional") totaisMesAnterior.custos += custo;
   }
 
-  const lucroLiquidoMes =
-    totais.receitas + totais.aportes - totais.custos - totais.transferencias;
+  const lucroLiquidoMes = totais.receitas - totais.custos;
   const transferidoMesAnteriorLegado = listaTransferenciasMesAnterior.reduce(
     (acc, item) => acc + Number(item.valor ?? 0),
     0
   );
   const lucroLiquidoMesAnterior =
-    totaisMesAnterior.receitas +
-    totaisMesAnterior.aportes -
-    totaisMesAnterior.custos -
-    totaisMesAnterior.transferencias;
+    totaisMesAnterior.receitas - totaisMesAnterior.custos;
   const transferenciasTotaisMes = totais.transferencias + transferidoMesLegado;
   const transferenciasTotaisMesAnterior =
     totaisMesAnterior.transferencias + transferidoMesAnteriorLegado;
@@ -262,7 +276,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
       : lucroLiquidoMes;
 
   const resumo = {
-    saldoCarteira: Math.max(lucroLiquidoMes, 0),
+    saldoCarteira: Math.max(lucroLiquidoMes - transferenciasTotaisMes, 0),
     recebidoMes: totais.receitas,
     aportesMes: totais.aportes,
     custosMes: totais.custos,
@@ -362,7 +376,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
 
   const serieMensal = Array.from(serieMap.values()).map((row) => ({
     ...row,
-    lucroLiquido: row.receitas + row.aportes - row.custos - row.transferencias,
+    lucroLiquido: row.receitas - row.custos,
   }));
 
   const serieComDados = serieMensal.filter(
@@ -372,108 +386,18 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   return (
     <main className="min-h-screen bg-zinc-50">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
-        <HistoricoSection serieMensal={serieMensal} serieComDados={serieComDados} />
+        <HeaderActions
+          mesSelecionado={mesSelecionado}
+          perfis={(perfisAtivos ?? []) as { id: string; nome: string }[]}
+          contas={(contasAtivas ?? []) as { id: string; nome: string }[]}
+        />
 
-        {/* Header */}
-        <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-                <Sparkles className="h-3.5 w-3.5" />
-                Módulo de renda variável
-              </div>
-
-              <div className="space-y-1">
-                <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 md:text-3xl">
-                  Renda variável
-                </h1>
-                <p className="max-w-2xl text-sm text-zinc-600 md:text-base">
-                  Acompanhe quanto você recebeu, quanto custou para produzir ou
-                  trabalhar e quanto realmente sobrou para guardar, transferir
-                  ou investir nas suas metas.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/renda-variavel/novo?tipo=receita_bruta"
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-800"
-              >
-                <Plus className="h-4 w-4" />
-                Nova receita
-              </Link>
-
-              <Link
-                href="/renda-variavel/novo?tipo=despesa_operacional"
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
-              >
-                <Plus className="h-4 w-4" />
-                Novo custo / taxa
-              </Link>
-
-              <Link
-                href="/renda-variavel/transferir"
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
-              >
-                <ArrowRightLeft className="h-4 w-4" />
-                Transferir saldo
-              </Link>
-
-              <Link
-                href="/renda-variavel/insumos"
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
-              >
-                <Settings2 className="h-4 w-4" />
-                Insumos
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* Competência selector */}
-        <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-zinc-900">
-                Competência
-              </h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                Consulte o histórico mensal sem interferir no mês seguinte.
-              </p>
-            </div>
-
-            <form method="GET" className="w-full max-w-xs">
-              <label className="mb-2 block text-sm font-medium text-zinc-700">
-                Mês
-              </label>
-              <div className="flex items-center gap-2">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-50 text-zinc-500">
-                  <CalendarRange className="h-4 w-4" />
-                </div>
-                <input
-                  type="month"
-                  name="mes"
-                  defaultValue={mesSelecionado}
-                  className="h-12 w-full rounded-2xl border border-zinc-300 bg-white px-4 text-sm outline-none transition focus:border-zinc-400"
-                />
-                <button
-                  type="submit"
-                  className="h-12 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
-                >
-                  Ver
-                </button>
-              </div>
-            </form>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-            Competência selecionada:{" "}
-            <span className="font-semibold text-zinc-900">
-              {formatCompetenciaLabel(mesSelecionado)}
-            </span>
-          </div>
-        </section>
+        <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
+          Competência selecionada:{" "}
+          <span className="font-semibold text-zinc-900">
+            {formatCompetenciaLabel(mesSelecionado)}
+          </span>
+        </div>
 
         <ResumoCards resumo={resumo} />
 
@@ -562,21 +486,6 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
             </div>
 
             <div className="flex flex-col gap-3">
-              <Link
-                href="/renda-variavel/novo"
-                className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-4 transition hover:bg-zinc-50"
-              >
-                <div>
-                  <p className="text-sm font-medium text-zinc-900">
-                    Novo lançamento
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    Registrar trabalho, pedido, venda ou serviço
-                  </p>
-                </div>
-                <Plus className="h-4 w-4 text-zinc-500" />
-              </Link>
-
               <Link
                 href="/renda-variavel/transferir"
                 className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-4 transition hover:bg-zinc-50"
@@ -847,6 +756,8 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
             </div>
           </div>
         </section>
+
+        <HistoricoSection serieMensal={serieMensal} serieComDados={serieComDados} />
 
         <LancamentosSection
           lancamentos={lancamentos}

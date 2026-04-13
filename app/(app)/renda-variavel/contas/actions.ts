@@ -3,13 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
-type PerfilInput = {
+type ContaInput = {
   id?: string;
   nome: string;
-  descricao: string;
 };
 
-export async function salvarPerfil(input: PerfilInput) {
+export async function salvarConta(input: ContaInput) {
   const supabase = await createClient();
 
   const {
@@ -17,34 +16,31 @@ export async function salvarPerfil(input: PerfilInput) {
   } = await supabase.auth.getUser();
 
   if (!user) throw new Error("Usuário não autenticado.");
-  if (!input.nome.trim()) throw new Error("Informe o nome do perfil.");
+  if (!input.nome.trim()) throw new Error("Informe o nome da conta.");
 
-  const payload = {
-    user_id: user.id,
-    nome: input.nome.trim(),
-    descricao: input.descricao.trim() || null,
-    ativo: true,
-  };
+  const nome = input.nome.trim();
 
   if (input.id) {
     const { error } = await supabase
-      .from("rv_perfis")
-      .update({ nome: payload.nome, descricao: payload.descricao })
+      .from("rv_contas")
+      .update({ nome })
       .eq("id", input.id)
       .eq("user_id", user.id);
 
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await supabase.from("rv_perfis").insert(payload);
+    const { error } = await supabase
+      .from("rv_contas")
+      .insert({ user_id: user.id, nome, ativo: true });
 
     if (error) throw new Error(error.message);
   }
 
-  revalidatePath("/renda-variavel/perfis");
+  revalidatePath("/renda-variavel/contas");
   revalidatePath("/renda-variavel");
 }
 
-export async function togglePerfil(id: string, ativo: boolean) {
+export async function toggleConta(id: string, ativo: boolean) {
   const supabase = await createClient();
 
   const {
@@ -54,17 +50,18 @@ export async function togglePerfil(id: string, ativo: boolean) {
   if (!user) throw new Error("Usuário não autenticado.");
 
   const { error } = await supabase
-    .from("rv_perfis")
+    .from("rv_contas")
     .update({ ativo })
     .eq("id", id)
     .eq("user_id", user.id);
 
   if (error) throw new Error(error.message);
 
-  revalidatePath("/renda-variavel/perfis");
+  revalidatePath("/renda-variavel/contas");
+  revalidatePath("/renda-variavel");
 }
 
-export async function excluirPerfil(id: string) {
+export async function excluirConta(id: string) {
   const supabase = await createClient();
 
   const {
@@ -74,13 +71,13 @@ export async function excluirPerfil(id: string) {
   if (!user) throw new Error("Usuário não autenticado.");
 
   const { error } = await supabase
-    .from("rv_perfis")
+    .from("rv_contas")
     .delete()
     .eq("id", id)
     .eq("user_id", user.id);
 
   if (error) throw new Error(error.message);
 
-  revalidatePath("/renda-variavel/perfis");
+  revalidatePath("/renda-variavel/contas");
   revalidatePath("/renda-variavel");
 }

@@ -45,6 +45,7 @@ export async function DELETE() {
     await admin.from("rv_lancamento_custos").delete().eq("user_id", user.id);
     await admin.from("rv_transferencias").delete().eq("user_id", user.id);
     await admin.from("rv_lancamentos").delete().eq("user_id", user.id);
+    await admin.from("rv_contas").delete().eq("user_id", user.id);
     await admin.from("rv_insumos").delete().eq("user_id", user.id);
     await admin.from("rv_categorias_custo").delete().eq("user_id", user.id);
     await admin.from("rv_configuracoes").delete().eq("user_id", user.id);
