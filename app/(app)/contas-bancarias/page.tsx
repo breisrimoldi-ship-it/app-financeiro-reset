@@ -1,15 +1,17 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import ContasClient from "./ui";
+import ContasBancariasClient from "./ui";
 
-type Conta = {
+type ContaBancaria = {
   id: string;
   nome: string;
+  tipo: string;
+  saldo_inicial: number;
   ativo: boolean;
   created_at: string;
 };
 
-export default async function ContasPage() {
+export default async function ContasBancariasPage() {
   const supabase = await createClient();
 
   const {
@@ -22,9 +24,10 @@ export default async function ContasPage() {
 
   const { data: contas, error } = await supabase
     .from("contas_bancarias")
-    .select("id, nome, ativo, created_at")
+    .select("id, nome, tipo, saldo_inicial, ativo, created_at")
     .eq("user_id", user.id)
-    .order("created_at", { ascending: true });
+    .order("tipo", { ascending: true })
+    .order("nome", { ascending: true });
 
   const tabelaInexistente = error?.message?.includes("contas_bancarias");
 
@@ -33,8 +36,8 @@ export default async function ContasPage() {
   }
 
   return (
-    <ContasClient
-      contas={(contas ?? []) as Conta[]}
+    <ContasBancariasClient
+      contas={(contas ?? []) as ContaBancaria[]}
       precisaMigracao={Boolean(tabelaInexistente)}
     />
   );

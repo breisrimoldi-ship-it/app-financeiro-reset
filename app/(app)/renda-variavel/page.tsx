@@ -156,7 +156,7 @@ export default async function RendaVariavelPage({ searchParams }: PageProps) {
   }
 
   const { data: contasAtivas } = await supabase
-    .from("rv_contas")
+    .from("contas_bancarias")
     .select("id, nome")
     .eq("user_id", user.id)
     .eq("ativo", true)

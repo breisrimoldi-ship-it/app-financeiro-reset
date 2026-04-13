@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   LayoutDashboard,
   Wallet,
+  Landmark,
  CreditCard,
   Target,
   User,
@@ -27,7 +28,8 @@ type AppSidebarProps = {
 const itensPrincipais = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/movimentacoes", label: "Movimentações", icon: Wallet },
-  { href: "/contas", label: "Contas", icon: FileText },
+  { href: "/contas-bancarias", label: "Contas bancárias", icon: Landmark },
+  { href: "/contas", label: "Contas fixas", icon: FileText },
   { href: "/cartoes", label: "Cartões", icon: CreditCard },
   { href: "/metas", label: "Metas", icon: Target },
   { href: "/perfil", label: "Perfil", icon: User },
@@ -35,11 +37,9 @@ const itensPrincipais = [
 
 const itensRendaVariavel = [
   { href: "/renda-variavel", label: "Resumo", icon: BarChart3 },
-  { href: "/renda-variavel/contas", label: "Contas", icon: Wallet },
-  { href: "/renda-variavel/transferir", label: "Transferências", icon: ArrowRightLeft,},
+  { href: "/renda-variavel/transferir", label: "Transferências", icon: ArrowRightLeft },
   { href: "/renda-variavel/categorias", label: "Categorias", icon: FileText },
   { href: "/renda-variavel/insumos", label: "Insumos", icon: Package },
-
 ];
 
 export function AppSidebar({

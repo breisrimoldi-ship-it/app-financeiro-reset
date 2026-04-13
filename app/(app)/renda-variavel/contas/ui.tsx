@@ -113,8 +113,8 @@ export default function ContasClient({ contas, precisaMigracao }: Props) {
 
           {precisaMigracao ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              A tabela <code>rv_contas</code> ainda não existe no banco. Rode a
-              migração <code>sql/002_rv_contas.sql</code> no Supabase antes de
+              A tabela <code>contas_bancarias</code> ainda não existe no banco. Rode a
+              migração <code>sql/003_contas_bancarias.sql</code> no Supabase antes de
               cadastrar contas.
             </div>
           ) : null}
