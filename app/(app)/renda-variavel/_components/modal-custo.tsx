@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarRange, Save, X } from "lucide-react";
 import {
@@ -8,14 +8,17 @@ import {
   type LancamentoInput,
 } from "../_lib/actions";
 import {
-  distributeAmount,
   getDatesInRange,
   getHoje,
 } from "../_lib/utils";
 import type { TipoRvLancamento } from "../_lib/tipos";
+import { createClient } from "@/lib/supabase/client";
 
 type TipoLancamento = "unico" | "intervalo";
 type TipoCusto = Extract<TipoRvLancamento, "taxa_financeira" | "despesa_operacional">;
+
+type Categoria = { id: string; nome: string; valor_padrao: number | null; usar_valor_padrao: boolean };
+type Insumo = { id: string; nome: string; valor_base: number };
 
 export function ModalCusto({ onClose }: { onClose: () => void }) {
   const router = useRouter();
@@ -32,10 +35,56 @@ export function ModalCusto({ onClose }: { onClose: () => void }) {
   const [descricao, setDescricao] = useState("");
   const [valor, setValor] = useState("");
 
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [categoriaId, setCategoriaId] = useState("");
+  const [insumoId, setInsumoId] = useState("");
+
+  const carregarDados = useCallback(async () => {
+    const supabase = createClient();
+    const [{ data: cats }, { data: ins }] = await Promise.all([
+      supabase
+        .from("rv_categorias_custo")
+        .select("id, nome, valor_padrao, usar_valor_padrao")
+        .eq("ativo", true)
+        .order("nome"),
+      supabase
+        .from("rv_insumos")
+        .select("id, nome, valor_base")
+        .eq("ativo", true)
+        .order("nome"),
+    ]);
+    setCategorias((cats ?? []) as Categoria[]);
+    setInsumos((ins ?? []) as Insumo[]);
+  }, []);
+
+  useEffect(() => {
+    void carregarDados();
+  }, [carregarDados]);
+
   const datasIntervalo = useMemo(() => {
     if (tipoLancamento !== "intervalo") return [];
     return getDatesInRange(dataInicio, dataFim);
   }, [tipoLancamento, dataInicio, dataFim]);
+
+  function handleCategoriaChange(id: string) {
+    setCategoriaId(id);
+    const cat = categorias.find((c) => c.id === id);
+    if (cat?.usar_valor_padrao && cat.valor_padrao != null) {
+      setValor(String(cat.valor_padrao));
+    }
+  }
+
+  function handleInsumoChange(id: string) {
+    setInsumoId(id);
+    const insumo = insumos.find((i) => i.id === id);
+    if (insumo && insumo.valor_base > 0) {
+      setValor(String(insumo.valor_base));
+      if (!descricao.trim()) {
+        setDescricao(insumo.nome);
+      }
+    }
+  }
 
   async function handleSalvar() {
     try {
@@ -50,6 +99,13 @@ export function ModalCusto({ onClose }: { onClose: () => void }) {
       if (valorNumero <= 0) {
         throw new Error("Informe um valor maior que zero.");
       }
+
+      const categoriaNome = categorias.find((c) => c.id === categoriaId)?.nome ?? "";
+
+      const custoDetalhado: { categoriaId: string | null; categoriaNome: string; descricao: string; valor: number }[] =
+        categoriaId
+          ? [{ categoriaId, categoriaNome, descricao: descricao.trim(), valor: valorNumero }]
+          : [];
 
       if (tipoLancamento === "unico") {
         const input: LancamentoInput = {
@@ -69,7 +125,7 @@ export function ModalCusto({ onClose }: { onClose: () => void }) {
           lucroPorHora: 0,
           margem: 0,
           itens: [],
-          custosDetalhados: [],
+          custosDetalhados: custoDetalhado,
         };
 
         await criarLancamentosRendaVariavel([input]);
@@ -78,30 +134,30 @@ export function ModalCusto({ onClose }: { onClose: () => void }) {
           throw new Error("O intervalo informado é inválido.");
         }
 
-        const valorPorDia = distributeAmount(valorNumero, datasIntervalo.length);
+        // In interval mode, valor is PER DAY
+        const valorPorDia = valorNumero;
 
-        const lancamentos: LancamentoInput[] = datasIntervalo.map((d, index) => {
-          const valorDia = valorPorDia[index] ?? 0;
-          return {
-            data: d,
-            descricao,
-            tipoRv: tipoCusto,
-            perfil: "",
-            cliente: "",
-            valorRecebido: valorDia,
-            horasTrabalhadas: 0,
-            quantidade: 0,
-            custoManualDescricao: "",
-            custoManualValor: 0,
-            custoInsumos: 0,
-            custoTotal: valorDia,
-            lucroLiquido: -valorDia,
-            lucroPorHora: 0,
-            margem: 0,
-            itens: [],
-            custosDetalhados: [],
-          };
-        });
+        const lancamentos: LancamentoInput[] = datasIntervalo.map((d) => ({
+          data: d,
+          descricao,
+          tipoRv: tipoCusto,
+          perfil: "",
+          cliente: "",
+          valorRecebido: valorPorDia,
+          horasTrabalhadas: 0,
+          quantidade: 0,
+          custoManualDescricao: "",
+          custoManualValor: 0,
+          custoInsumos: 0,
+          custoTotal: valorPorDia,
+          lucroLiquido: -valorPorDia,
+          lucroPorHora: 0,
+          margem: 0,
+          itens: [],
+          custosDetalhados: categoriaId
+            ? [{ categoriaId, categoriaNome, descricao: descricao.trim(), valor: valorPorDia }]
+            : [],
+        }));
 
         await criarLancamentosRendaVariavel(lancamentos);
       }
@@ -112,6 +168,11 @@ export function ModalCusto({ onClose }: { onClose: () => void }) {
       setErro(error instanceof Error ? error.message : "Erro ao salvar custo.");
     }
   }
+
+  const valorNumerico = Number(valor) || 0;
+  const totalIntervalo = tipoLancamento === "intervalo" && datasIntervalo.length > 0
+    ? valorNumerico * datasIntervalo.length
+    : 0;
 
   return (
     <>
@@ -242,9 +303,54 @@ export function ModalCusto({ onClose }: { onClose: () => void }) {
             {tipoLancamento === "intervalo" && datasIntervalo.length > 0 ? (
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
                 <CalendarRange className="mr-1 inline h-3.5 w-3.5" />
-                {datasIntervalo.length} dia(s) — valor será rateado entre os dias
+                {datasIntervalo.length} dia(s)
+                {totalIntervalo > 0 && (
+                  <> — total: R$ {totalIntervalo.toFixed(2)}</>
+                )}
               </div>
             ) : null}
+
+            {categorias.length > 0 && (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-zinc-700">
+                  Categoria{" "}
+                  <span className="font-normal text-zinc-400">(opcional)</span>
+                </label>
+                <select
+                  value={categoriaId}
+                  onChange={(e) => handleCategoriaChange(e.target.value)}
+                  className="h-12 w-full rounded-2xl border border-zinc-300 bg-white px-4 text-sm outline-none transition focus:border-zinc-400"
+                >
+                  <option value="">Nenhuma</option>
+                  {categorias.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {insumos.length > 0 && (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-zinc-700">
+                  Insumo{" "}
+                  <span className="font-normal text-zinc-400">(opcional)</span>
+                </label>
+                <select
+                  value={insumoId}
+                  onChange={(e) => handleInsumoChange(e.target.value)}
+                  className="h-12 w-full rounded-2xl border border-zinc-300 bg-white px-4 text-sm outline-none transition focus:border-zinc-400"
+                >
+                  <option value="">Nenhum</option>
+                  {insumos.map((ins) => (
+                    <option key={ins.id} value={ins.id}>
+                      {ins.nome} (R$ {ins.valor_base.toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="mb-2 block text-sm font-medium text-zinc-700">
@@ -261,7 +367,7 @@ export function ModalCusto({ onClose }: { onClose: () => void }) {
 
             <div>
               <label className="mb-2 block text-sm font-medium text-zinc-700">
-                Valor (R$)
+                {tipoLancamento === "intervalo" ? "Valor por dia (R$)" : "Valor (R$)"}
               </label>
               <input
                 type="number"
