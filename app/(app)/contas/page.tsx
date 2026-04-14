@@ -373,6 +373,15 @@ useEffect(() => {
 
         setPagamentos((atual) => [...atual, data as PagamentoConta]);
       }
+
+      await supabase.from("movimentacoes").insert({
+        tipo: "despesa",
+        descricao: `Pagamento conta: ${conta.descricao} (${mesRef})`,
+        categoria: "pagamento_conta",
+        valor: Number(conta.valor),
+        data: getDataHoje(),
+        tipo_pagamento: "pix_dinheiro",
+      });
     } finally {
       setPagandoKey(null);
     }

@@ -407,6 +407,16 @@ export default function CartoesPage() {
           )
         );
 
+        const nomeCartao = cartoes.find((c) => c.id === cartaoId)?.nome ?? "Cartão";
+        await supabase.from("movimentacoes").insert({
+          tipo: "despesa",
+          descricao: `Pagamento fatura ${nomeCartao} (${mesReferencia})`,
+          categoria: "pagamento_fatura",
+          valor: valorPagamento,
+          data: getDataHoje(),
+          tipo_pagamento: "pix_dinheiro",
+        });
+
         fecharModalPagamento();
         return;
       }
@@ -436,6 +446,16 @@ export default function CartoesPage() {
           data_pagamento: data.data_pagamento ?? null,
         },
       ]);
+
+      const nomeCartao = cartoes.find((c) => c.id === cartaoId)?.nome ?? "Cartão";
+      await supabase.from("movimentacoes").insert({
+        tipo: "despesa",
+        descricao: `Pagamento fatura ${nomeCartao} (${mesReferencia})`,
+        categoria: "pagamento_fatura",
+        valor: valorPagamento,
+        data: getDataHoje(),
+        tipo_pagamento: "pix_dinheiro",
+      });
 
       fecharModalPagamento();
     } finally {

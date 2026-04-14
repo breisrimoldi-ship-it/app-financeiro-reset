@@ -851,6 +851,15 @@ export default function DashboardPage() {
         return;
       }
 
+      await supabase.from("movimentacoes").insert({
+        tipo: "despesa",
+        descricao: `Pagamento conta: ${conta.descricao} (${mesSelecionado})`,
+        categoria: "pagamento_conta",
+        valor: normalizarNumero(conta.valor),
+        data: getHoje(),
+        tipo_pagamento: "pix_dinheiro",
+      });
+
       setToast(`Conta "${conta.descricao}" marcada como paga`);
       await carregarDashboard();
       setTimeout(() => setToast(null), 2500);
