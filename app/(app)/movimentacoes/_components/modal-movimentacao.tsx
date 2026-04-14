@@ -4,6 +4,7 @@ import { Tag, X } from "lucide-react";
 import type {
   Cartao,
   CategoryOption,
+  ContaBancaria,
   FormData,
   FormType,
   PaymentType,
@@ -24,6 +25,7 @@ export function ModalMovimentacao({
   onClose,
   onSubmit,
   onOpenCategorias,
+  contasBancarias,
 }: {
   sheetTitle: string;
   sheetDescription: string;
@@ -38,6 +40,7 @@ export function ModalMovimentacao({
   onClose: () => void;
   onSubmit: (e: React.FormEvent) => void;
   onOpenCategorias: (tab: FormType) => void;
+  contasBancarias?: ContaBancaria[];
 }) {
   return (
     <>
@@ -202,6 +205,32 @@ export function ModalMovimentacao({
                       ))}
                     </select>
                   </div>
+
+                  {contasBancarias && contasBancarias.length > 0 && (
+                    <div className="grid gap-2 md:col-span-2">
+                      <label className="text-sm font-medium text-slate-700">
+                        Conta bancária{" "}
+                        <span className="font-normal text-slate-400">(opcional)</span>
+                      </label>
+                      <select
+                        value={formData.contaId}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            contaId: e.target.value,
+                          }))
+                        }
+                        className="h-12 rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none transition focus:border-slate-400"
+                      >
+                        <option value="">Nenhuma</option>
+                        {contasBancarias.map((conta) => (
+                          <option key={conta.id} value={conta.id}>
+                            {conta.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
 

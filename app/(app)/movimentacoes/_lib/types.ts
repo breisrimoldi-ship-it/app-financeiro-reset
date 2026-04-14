@@ -1,4 +1,5 @@
 export type FormType = "entrada" | "despesa";
+export type MovimentacaoTipo = FormType | "transferencia";
 export type TabType = "entradas" | "despesas";
 export type PaymentType = "pix_dinheiro" | "debito" | "credito";
 
@@ -12,7 +13,7 @@ export type Cartao = {
 export type Movimentacao = {
   id: number;
   created_at?: string;
-  tipo: FormType;
+  tipo: MovimentacaoTipo;
   descricao: string;
   categoria: string;
   valor: number;
@@ -24,12 +25,14 @@ export type Movimentacao = {
   metaId?: string | null;
   metaAporteId?: string | null;
   rvTransferenciaId?: string | null;
+  contaId?: string | null;
+  contaDestinoId?: string | null;
 };
 
 export type DbMovimentacao = {
   id: number;
   created_at: string;
-  tipo: FormType;
+  tipo: MovimentacaoTipo;
   descricao: string;
   categoria: string;
   valor: number | string;
@@ -41,6 +44,8 @@ export type DbMovimentacao = {
   meta_id: string | null;
   meta_aporte_id: string | null;
   rv_transferencia_id: string | null;
+  conta_id: string | null;
+  conta_destino_id: string | null;
 };
 
 export type DbCartao = {
@@ -68,6 +73,12 @@ export type DbMovimentacaoCategoria = {
 
 export type CategoryManagerTab = "entrada" | "despesa";
 
+export type ContaBancaria = {
+  id: string;
+  nome: string;
+  tipo: string;
+};
+
 export type FormData = {
   descricao: string;
   categoria: string;
@@ -77,4 +88,5 @@ export type FormData = {
   cartaoId: string;
   parcelas: string;
   primeiraCobranca: string;
+  contaId: string;
 };

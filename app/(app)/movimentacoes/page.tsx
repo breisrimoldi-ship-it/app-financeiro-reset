@@ -44,6 +44,7 @@ import { ModalDetalhes } from "./_components/modal-detalhes";
 import { ModalMovimentacao } from "./_components/modal-movimentacao";
 import { ModalTransferencia } from "./_components/modal-transferencia";
 import { ResumoCard } from "./_components/resumo-card";
+import { SaldoContas } from "./_components/saldo-contas";
 
 const supabase = createClient();
 
@@ -85,7 +86,7 @@ export default function MovimentacoesPage() {
   const [formData, setFormData] = useState(getInitialFormData());
   const [transferenciaOpen, setTransferenciaOpen] = useState(false);
   const [contasBancarias, setContasBancarias] = useState<
-    { id: string; nome: string; tipo: string }[]
+    { id: string; nome: string; tipo: string; saldo_inicial: number }[]
   >([]);
 
   const categoriasAtuais =
@@ -268,11 +269,11 @@ export default function MovimentacoesPage() {
   const carregarContasBancarias = useCallback(async () => {
     const { data } = await supabase
       .from("contas_bancarias")
-      .select("id, nome, tipo")
+      .select("id, nome, tipo, saldo_inicial")
       .eq("ativo", true)
       .order("nome", { ascending: true });
 
-    setContasBancarias((data ?? []) as { id: string; nome: string; tipo: string }[]);
+    setContasBancarias((data ?? []) as { id: string; nome: string; tipo: string; saldo_inicial: number }[]);
   }, []);
 
   useEffect(() => {
@@ -484,6 +485,7 @@ export default function MovimentacoesPage() {
   }
 
   function handleEdit(item: Movimentacao) {
+    if (item.tipo === "transferencia") return;
     setEditingId(item.id);
     setFormType(item.tipo);
     setFormData({
@@ -495,6 +497,7 @@ export default function MovimentacoesPage() {
       cartaoId: item.cartaoId ? String(item.cartaoId) : "",
       parcelas: item.parcelas ? String(item.parcelas) : "",
       primeiraCobranca: item.primeiraCobranca ?? "",
+      contaId: item.contaId ?? "",
     });
     setSheetOpen(true);
   }
@@ -619,6 +622,7 @@ export default function MovimentacoesPage() {
         formType === "despesa" && formData.tipoPagamento === "credito"
           ? primeiraCobrancaFinal
           : null,
+      ...(formData.contaId ? { conta_id: formData.contaId } : { conta_id: null }),
     };
 
     if (editingId !== null) {
@@ -932,6 +936,11 @@ export default function MovimentacoesPage() {
           />
         </div>
 
+        <SaldoContas
+          contas={contasBancarias}
+          movimentacoes={movimentacoes}
+        />
+
         <SectionCard className="rounded-[30px]">
           <div className="space-y-6">
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1183,6 +1192,7 @@ export default function MovimentacoesPage() {
           onClose={closeSheet}
           onSubmit={handleSubmit}
           onOpenCategorias={openCategorias}
+          contasBancarias={contasBancarias}
         />
       )}
 

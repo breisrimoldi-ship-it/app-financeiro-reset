@@ -47,6 +47,7 @@ export function getInitialFormData(): FormData {
     cartaoId: "",
     parcelas: "",
     primeiraCobranca: "",
+    contaId: "",
   };
 }
 
@@ -66,6 +67,8 @@ export function mapDbToUi(item: DbMovimentacao): Movimentacao {
     metaId: item.meta_id,
     metaAporteId: item.meta_aporte_id,
     rvTransferenciaId: item.rv_transferencia_id,
+    contaId: item.conta_id,
+    contaDestinoId: item.conta_destino_id,
   };
 }
 
