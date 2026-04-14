@@ -1,4 +1,4 @@
-import { ArrowDownLeft, Calendar, CreditCard, Tag } from "lucide-react";
+import { ArrowDownLeft, Calendar, CreditCard, Landmark, Tag } from "lucide-react";
 import type { CategoryOption, Movimentacao } from "../_lib/types";
 import {
   formatCompetencia,
@@ -13,6 +13,7 @@ export function CardDespesaPremium({
   item,
   nomeCartao,
   categoryOptions,
+  nomeConta,
   onEdit,
   onDelete,
   onOpen,
@@ -20,6 +21,7 @@ export function CardDespesaPremium({
   item: Movimentacao;
   nomeCartao: string;
   categoryOptions: CategoryOption[];
+  nomeConta?: string;
   onEdit: () => void;
   onDelete: () => void;
   onOpen: () => void;
@@ -74,6 +76,13 @@ export function CardDespesaPremium({
                 {isCredito && item.primeiraCobranca && (
                   <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
                     Fatura {formatCompetencia(item.primeiraCobranca)}
+                  </span>
+                )}
+
+                {nomeConta && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+                    <Landmark className="h-3.5 w-3.5" />
+                    {nomeConta}
                   </span>
                 )}
               </div>

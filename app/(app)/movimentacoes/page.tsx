@@ -105,6 +105,11 @@ export default function MovimentacoesPage() {
     [cartoes]
   );
 
+  const contasMap = useMemo(
+    () => new Map(contasBancarias.map((c) => [c.id, c.nome])),
+    [contasBancarias]
+  );
+
   const primeiraCobrancaSugerida = useMemo(() => {
     if (formType !== "despesa") return "";
     if (formData.tipoPagamento !== "credito") return "";
@@ -1148,6 +1153,7 @@ export default function MovimentacoesPage() {
                             key={item.id}
                             item={item}
                             categoryOptions={todasCategorias}
+                            nomeConta={item.contaId ? contasMap.get(item.contaId) : undefined}
                             onOpen={() => setSelectedItem(item)}
                             onEdit={() => handleEdit(item)}
                             onDelete={() => void handleDelete(item.id)}
@@ -1162,6 +1168,7 @@ export default function MovimentacoesPage() {
                                 : "-"
                             }
                             categoryOptions={todasCategorias}
+                            nomeConta={item.contaId ? contasMap.get(item.contaId) : undefined}
                             onOpen={() => setSelectedItem(item)}
                             onEdit={() => handleEdit(item)}
                             onDelete={() => void handleDelete(item.id)}

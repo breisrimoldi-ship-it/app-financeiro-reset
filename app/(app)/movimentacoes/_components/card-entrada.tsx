@@ -1,4 +1,4 @@
-import { ArrowUpRight, Calendar, Tag } from "lucide-react";
+import { ArrowUpRight, Calendar, Landmark, Tag } from "lucide-react";
 import type { CategoryOption, Movimentacao } from "../_lib/types";
 import { formatCurrency, formatDate, resolveCategoryLabel } from "../_lib/utils";
 import { AcaoItem } from "./acao-item";
@@ -6,12 +6,14 @@ import { AcaoItem } from "./acao-item";
 export function CardEntradaPremium({
   item,
   categoryOptions,
+  nomeConta,
   onEdit,
   onDelete,
   onOpen,
 }: {
   item: Movimentacao;
   categoryOptions: CategoryOption[];
+  nomeConta?: string;
   onEdit: () => void;
   onDelete: () => void;
   onOpen: () => void;
@@ -51,6 +53,13 @@ export function CardEntradaPremium({
                   <Tag className="h-3.5 w-3.5" />
                   {resolveCategoryLabel(item.categoria, categoryOptions)}
                 </span>
+
+                {nomeConta && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+                    <Landmark className="h-3.5 w-3.5" />
+                    {nomeConta}
+                  </span>
+                )}
               </div>
             </div>
 
