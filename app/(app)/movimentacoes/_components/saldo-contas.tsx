@@ -29,7 +29,8 @@ export function SaldoContas({
       if (mov.contaId === conta.id) {
         if (mov.tipo === "entrada") {
           saldo += mov.valor;
-        } else if (mov.tipo === "despesa") {
+        } else if (mov.tipo === "despesa" && mov.tipoPagamento !== "credito") {
+          // Crédito não sai da conta na data da compra, só na fatura
           saldo -= mov.valor;
         } else if (mov.tipo === "transferencia") {
           saldo -= mov.valor;

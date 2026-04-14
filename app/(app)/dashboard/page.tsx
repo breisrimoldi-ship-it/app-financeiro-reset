@@ -264,9 +264,10 @@ export default function DashboardPage() {
         for (const mov of movimentacoes) {
           if (mov.conta_id === conta.id) {
             const tipoMov = (mov.tipo ?? "").toLowerCase();
+            const tipoPag = (mov.tipo_pagamento ?? "").toLowerCase();
             const valor = normalizarNumero(mov.valor);
             if (tipoMov === "entrada") saldo += valor;
-            else if (tipoMov === "despesa") saldo -= valor;
+            else if (tipoMov === "despesa" && tipoPag !== "credito") saldo -= valor;
             else if (tipoMov === "transferencia") saldo -= valor;
           }
           if ((mov.tipo ?? "").toLowerCase() === "transferencia" && mov.conta_destino_id === conta.id) {
