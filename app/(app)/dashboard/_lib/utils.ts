@@ -679,6 +679,7 @@ export function calcularSnapshotDoMesBase(
     saldoDisponivel: totalEntradas - totalSaidasPagas,
     adiantadas: totalAdiantadasNoMes,
     cartoesResumo: Array.from(resumoPorCartao.values()),
+    saidasContasFaturas: totalFaturasPagasNoMes + totalContasPagasNoMes,
   };
 }
 

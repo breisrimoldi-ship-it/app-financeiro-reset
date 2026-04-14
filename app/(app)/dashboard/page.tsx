@@ -76,6 +76,9 @@ export default function DashboardPage() {
   const [comprometidoAtrasado, setComprometidoAtrasado] = useState(0);
   const [saldoDisponivel, setSaldoDisponivel] = useState(0);
   const [adiantadasMes, setAdiantadasMes] = useState(0);
+  const [saldoCpf, setSaldoCpf] = useState(0);
+  const [saldoPj, setSaldoPj] = useState(0);
+  const [saidasContasFaturas, setSaidasContasFaturas] = useState(0);
 
   const [metasResumo, setMetasResumo] = useState<MetasSnapshot>({
     totalGuardado: 0,
@@ -150,11 +153,12 @@ export default function DashboardPage() {
       { data: metaAportesData, error: metaAportesError },
       { data: contasData, error: contasError },
       { data: pagamentosContasData, error: pagamentosContasError },
+      { data: contasBancariasData },
     ] = await Promise.all([
       supabase
         .from("movimentacoes")
         .select(
-          "id, created_at, tipo, descricao, categoria, valor, data, tipo_pagamento, cartao_id, parcelas, primeira_cobranca, meta_id, meta_aporte_id"
+          "id, created_at, tipo, descricao, categoria, valor, data, tipo_pagamento, cartao_id, parcelas, primeira_cobranca, meta_id, meta_aporte_id, conta_id, conta_destino_id"
         ),
 
       supabase
@@ -178,6 +182,11 @@ export default function DashboardPage() {
       supabase.from("contas_fixas").select("*"),
 
       supabase.from("pagamentos_contas").select("*"),
+
+      supabase
+        .from("contas_bancarias")
+        .select("id, nome, tipo, saldo_inicial")
+        .eq("ativo", true),
     ]);
 
     if (metasError || metaAportesError) {
@@ -237,6 +246,40 @@ export default function DashboardPage() {
     setComprometidoAtrasado(atual.comprometidoAtrasado);
     setSaldoDisponivel(atual.saldoDisponivel);
     setAdiantadasMes(atual.adiantadas);
+    setSaidasContasFaturas(atual.saidasContasFaturas);
+
+    // Compute per-type bank account balances
+    const contasBancarias = (contasBancariasData ?? []) as {
+      id: string;
+      nome: string;
+      tipo: string;
+      saldo_inicial: number;
+    }[];
+
+    const calcSaldoPorTipo = (tipoFiltro: string) => {
+      const contasTipo = contasBancarias.filter((c) => c.tipo === tipoFiltro);
+      let total = 0;
+      for (const conta of contasTipo) {
+        let saldo = normalizarNumero(conta.saldo_inicial);
+        for (const mov of movimentacoes) {
+          if (mov.conta_id === conta.id) {
+            const tipoMov = (mov.tipo ?? "").toLowerCase();
+            const valor = normalizarNumero(mov.valor);
+            if (tipoMov === "entrada") saldo += valor;
+            else if (tipoMov === "despesa") saldo -= valor;
+            else if (tipoMov === "transferencia") saldo -= valor;
+          }
+          if ((mov.tipo ?? "").toLowerCase() === "transferencia" && mov.conta_destino_id === conta.id) {
+            saldo += normalizarNumero(mov.valor);
+          }
+        }
+        total += saldo;
+      }
+      return total;
+    };
+
+    setSaldoCpf(calcSaldoPorTipo("cpf"));
+    setSaldoPj(calcSaldoPorTipo("pj"));
 
     const meses = Array.from({ length: 6 }, (_, index) =>
       adicionarMeses(mesSelecionado, -(5 - index))
@@ -955,16 +998,28 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:w-full xl:max-w-140">
-                <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5 sm:col-span-2">
-                  <p className="text-3xl font-bold text-emerald-700">
-                    Saldo real em conta
+              <div className="grid gap-3 sm:grid-cols-2 xl:w-full xl:max-w-160">
+                <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5">
+                  <p className="text-sm font-bold uppercase tracking-[0.12em] text-emerald-700">
+                    Saldo real em conta CPF
                   </p>
                   <p className="mt-2 text-3xl font-semibold text-emerald-700">
-                    {formatarMoeda(saldoDisponivel)}
+                    {formatarMoeda(saldoCpf)}
                   </p>
                   <p className="mt-2 text-xs text-emerald-700/80">
-                    Dinheiro real disponível considerando o fechamento do mês anterior.
+                    Saldo acumulado nas contas bancárias CPF.
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-blue-200 bg-blue-50/80 p-5">
+                  <p className="text-sm font-bold uppercase tracking-[0.12em] text-blue-700">
+                    Saldo em conta PJ
+                  </p>
+                  <p className="mt-2 text-3xl font-semibold text-blue-700">
+                    {formatarMoeda(saldoPj)}
+                  </p>
+                  <p className="mt-2 text-xs text-blue-700/80">
+                    Saldo acumulado nas contas bancárias PJ.
                   </p>
                 </div>
 
@@ -1003,10 +1058,13 @@ export default function DashboardPage() {
 
                 <div className="rounded-3xl border border-zinc-200 bg-white/90 p-4">
                   <p className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
-                    Saídas reais
+                    Saídas contas/faturas
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-zinc-900">
-                    {formatarMoeda(saidasPagasMes)}
+                    {formatarMoeda(saidasContasFaturas)}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Pagamentos de contas fixas e faturas no mês.
                   </p>
                 </div>
               </div>

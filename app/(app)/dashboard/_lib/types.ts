@@ -15,6 +15,8 @@ export type Movimentacao = {
   primeira_cobranca: string | null;
   meta_id?: string | null;
   meta_aporte_id?: string | null;
+  conta_id?: string | null;
+  conta_destino_id?: string | null;
 };
 
 export type FaturaPagamento = {
@@ -118,6 +120,7 @@ export type MonthSnapshot = {
   saldoDisponivel: number;
   adiantadas: number;
   cartoesResumo: ResumoCartao[];
+  saidasContasFaturas: number;
 };
 
 export type CardAtivo =
