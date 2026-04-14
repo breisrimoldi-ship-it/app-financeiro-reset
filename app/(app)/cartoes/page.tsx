@@ -740,10 +740,20 @@ export default function CartoesPage() {
       const faturaMesAtual =
         meses.find((item) => item.mes === mesAtual) || null;
 
-      const totalUsadoAtual = despesasDoCartao.reduce(
+      const totalLancadoCartao = despesasDoCartao.reduce(
         (acc, item) => acc + Number(item.valor),
         0
       );
+
+      const totalPagoFaturas = pagamentos
+        .filter(
+          (p) =>
+            p.cartao_id === cartao.id &&
+            ["paga", "parcial"].includes((p.status ?? "").toLowerCase())
+        )
+        .reduce((acc, p) => acc + Number(p.valor_pago ?? 0), 0);
+
+      const totalUsadoAtual = Math.max(totalLancadoCartao - totalPagoFaturas, 0);
 
       const percentualUso =
         Number(cartao.limite) > 0

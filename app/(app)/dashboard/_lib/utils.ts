@@ -473,10 +473,13 @@ export function calcularSnapshotDoMesBase(
     (item) => (item.tipo ?? "").toLowerCase() === "entrada"
   );
 
+  const categoriasExcluidas = ["pagamento_fatura", "pagamento_conta"];
+
   const despesasAvista = movimentacoesMes.filter(
     (item) =>
       (item.tipo ?? "").toLowerCase() === "despesa" &&
-      (item.tipo_pagamento ?? "").toLowerCase() !== "credito"
+      (item.tipo_pagamento ?? "").toLowerCase() !== "credito" &&
+      !categoriasExcluidas.includes((item.categoria ?? "").toLowerCase())
   );
 
   const totalEntradas = entradas.reduce(
